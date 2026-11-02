@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Courtside Task Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Figtree:wght@400;500;600;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
+<style>
+:root{color-scheme:light}
+html,body{margin:0}
+body{-webkit-text-size-adjust:100%}
+
+/* Layout: tab bar; Tasks = scoreboard left + running list right (stacks on phones); Inbox = full-width triage list */
+:root{
+  --bg:#f6f4f1; --panel:#ffffff; --ink:#1d2430; --muted:#6b6f78; --line:#e4dfd8;
+  --orange:#d9622b; --orange-soft:#fbe7dc; --board:#1f2a3a; --board-ink:#f4efe8; --board-dim:#9aa6b8; --good:#2f8a5b; --bad:#b8452f;
+  --display:"Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --body:"Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#14171c; --panel:#1c2027; --ink:#ece8e2; --muted:#9a9ea7; --line:#2c313a;
+  --orange:#f07a3e; --orange-soft:#3a2418; --board:#0d1119; --board-ink:#f4efe8; --board-dim:#8692a6; --good:#4cc188; --bad:#f08a72; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14171c; --panel:#1c2027; --ink:#ece8e2; --muted:#9a9ea7; --line:#2c313a;
+  --orange:#f07a3e; --orange-soft:#3a2418; --board:#0d1119; --board-ink:#f4efe8; --board-dim:#8692a6; --good:#4cc188; --bad:#f08a72; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+[hidden]{display:none!important}
+.wrap{max-width:1080px;margin:0 auto;padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+h1{font-family:var(--display);font-weight:800;font-size:2.1rem;letter-spacing:.02em;margin:0;text-transform:uppercase;text-wrap:balance}
+h1 span{color:var(--orange)}
+.date{color:var(--muted);font-size:.9rem}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:20px}
+.tab{background:none;border:0;border-bottom:3px solid transparent;padding:8px 14px;font-weight:600;color:var(--muted);margin-bottom:-1px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--orange)}
+.tab:focus-visible{outline:2px solid var(--orange);outline-offset:-2px}
+.tab .count{display:inline-block;min-width:20px;padding:0 6px;margin-left:6px;border-radius:99px;background:var(--orange);color:#1a1310;font-size:.75rem;text-align:center}
+.grid{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
+
+/* Scoreboard */
+.board{background:var(--board);color:var(--board-ink);border-radius:14px;padding:20px;display:grid;gap:18px}
+.lbl{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--board-dim);font-weight:600}
+.today .num{font-family:var(--display);font-weight:800;font-size:5.2rem;line-height:.9;color:var(--orange);font-variant-numeric:tabular-nums}
+.today .sub{color:var(--board-dim);font-size:.85rem;margin-top:4px}
+.pill{display:inline-block;background:var(--orange);color:#1a1310;font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-radius:99px;padding:2px 9px;margin-left:8px;vertical-align:middle}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;border-top:1px solid rgba(255,255,255,.12);padding-top:16px}
+.pair .num{font-family:var(--display);font-weight:800;font-size:2.4rem;line-height:1;font-variant-numeric:tabular-nums}
+.pair .sub{color:var(--board-dim);font-size:.8rem}
+.days{border-top:1px solid rgba(255,255,255,.12);padding-top:16px;display:grid;gap:6px}
+.days ol{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:6px}
+.days li{display:grid;grid-template-columns:76px 1fr 28px;align-items:center;gap:10px;font-size:.85rem}
+.days .d{color:var(--board-dim)}
+.days .bar{height:8px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden}
+.days .bar i{display:block;height:100%;background:var(--orange);border-radius:4px}
+.days .n{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.days .best i{background:#ffd08a}
+.days .empty{color:var(--board-dim);font-size:.85rem}
+.watch{color:var(--board-ink);font-size:.85rem;text-decoration:underline;text-underline-offset:3px}
+.clips{border-top:1px solid rgba(255,255,255,.12);padding-top:14px;display:grid;gap:8px}
+.clips summary{cursor:pointer;font-size:.85rem;color:var(--board-ink)}
+.clips textarea{width:100%;box-sizing:border-box;min-height:110px;font:inherit;font-size:.8rem;border-radius:9px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:var(--board-ink);padding:8px}
+.clips .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.clips .sub{color:var(--board-dim);font-size:.8rem}
+
+/* Panels and lists */
+.list{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;min-width:0}
+.list h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:.04em;font-size:1.4rem;margin:0 0 12px}
+form.add{display:flex;gap:8px}
+input.txt{flex:1;min-width:0;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink)}
+input.txt:focus-visible{outline:2px solid var(--orange);outline-offset:1px}
+button{font:inherit;cursor:pointer}
+.btn{background:var(--orange);color:#1a1310;border:0;border-radius:9px;padding:9px 16px;font-weight:700;white-space:nowrap}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:600}
+.btn:disabled{opacity:.55;cursor:default}
+.btn:focus-visible,.x:focus-visible,.chk:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sec{margin-top:18px}
+.sec h3{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 6px;font-weight:600}
+ul.tasks{list-style:none;margin:0;padding:0}
+ul.tasks li{display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--line)}
+ul.tasks li:last-child{border-bottom:0}
+.chk{flex:none;width:24px;height:24px;border-radius:50%;border:2px solid var(--muted);background:transparent;display:grid;place-items:center;padding:0}
+.chk:hover{border-color:var(--orange)}
+.done .chk{background:var(--orange);border-color:var(--orange)}
+.done .chk::after{content:"";width:9px;height:5px;border-left:2px solid #1a1310;border-bottom:2px solid #1a1310;transform:rotate(-45deg) translate(1px,-1px)}
+.t{flex:1;min-width:0;overflow-wrap:anywhere}
+.t a{color:var(--muted);font-size:.8rem;margin-left:6px;text-decoration:none;white-space:nowrap}
+.t a:hover{color:var(--orange)}
+.done .t{color:var(--muted);text-decoration:line-through}
+.time{color:var(--muted);font-size:.8rem;font-variant-numeric:tabular-nums}
+.x{border:0;background:transparent;color:var(--muted);font-size:1.2rem;line-height:1;padding:4px 6px;border-radius:6px}
+.x:hover{color:var(--orange)}
+.hint{color:var(--muted);font-size:.9rem;padding:8px 0}
+.note{margin-top:14px;font-size:.82rem;color:var(--muted)}
+
+/* Inbox */
+.ibar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.ibar h2{margin:0}
+.istatus{color:var(--muted);font-size:.85rem;margin:0 0 14px}
+.istatus.err{color:var(--bad)}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.chip{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:99px;padding:3px 12px;font-size:.82rem;font-weight:600}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.items{display:grid;gap:10px}
+.item{border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:8px;min-width:0;border-left:4px solid var(--line)}
+.item.reply{border-left-color:#4a7fd6}
+.item.task{border-left-color:var(--orange)}
+.meta{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:.8rem;color:var(--muted)}
+.src{font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:.68rem;padding:2px 8px;border-radius:99px;background:var(--orange-soft);color:var(--ink)}
+.kind{font-weight:700;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase}
+.item.reply .kind{color:#4a7fd6}
+.item.task .kind{color:var(--orange)}
+.subj{font-weight:600;overflow-wrap:anywhere}
+.snip{color:var(--muted);font-size:.88rem;overflow-wrap:anywhere}
+.why{font-size:.85rem}
+.why b{font-weight:600}
+.act{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.act .txt{flex:1 1 220px}
+.act a{color:var(--ink);font-size:.85rem;font-weight:600}
+.added{color:var(--good);font-weight:700;font-size:.85rem}
+.ierrs{display:grid;gap:4px;margin-bottom:12px}
+.ierrs div{font-size:.85rem;color:var(--bad)}
+
+/* Highlight banner */
+.toast{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top,0px));transform:translate(-50%,-140%);transition:transform .35s cubic-bezier(.2,.9,.3,1.2);z-index:50;width:min(420px,calc(100% - 32px));background:var(--board);color:var(--board-ink);border-radius:14px;box-shadow:0 14px 40px rgba(0,0,0,.28);overflow:hidden;cursor:pointer}
+.toast.show{transform:translate(-50%,0)}
+.toast .msg{padding:12px 16px 4px;font-weight:600}
+.toast .msg b{font-family:var(--display);font-weight:800;font-size:1.5rem;letter-spacing:.03em;text-transform:uppercase;color:var(--orange);display:block;line-height:1.05}
+.toast .move{padding:0 16px;color:var(--board-dim);font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;display:flex;justify-content:space-between;gap:10px}
+.toast .move a{color:var(--board-ink);letter-spacing:.04em;text-transform:none;font-size:.8rem}
+.toast canvas{display:block;width:100%;height:auto;aspect-ratio:360/200}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+
+/* site-only additions */
+.signin{max-width:440px;margin:60px auto;text-align:center;display:grid;gap:14px;justify-items:center}
+.signin p{color:var(--muted);margin:0}
+.sync{font-size:.8rem;color:var(--muted)}
+.sync.err{color:var(--bad)}
+.who{display:flex;gap:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.who button{background:none;border:0;color:var(--muted);text-decoration:underline;padding:0;font-size:.85rem}
+.reel{position:fixed;inset:0;z-index:60;background:rgba(10,14,20,.72);display:grid;place-items:center;padding:16px}
+.reel-card{background:var(--board);color:var(--board-ink);border-radius:16px;overflow:hidden;width:min(360px,100%);max-height:calc(100vh - 32px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.reel-head{padding:12px 16px 8px}
+.reel-head b{font-family:var(--display);font-weight:800;font-size:1.6rem;letter-spacing:.03em;text-transform:uppercase;color:var(--orange);display:block;line-height:1.05}
+.reel-video{position:relative;width:100%;aspect-ratio:9/16;max-height:calc(100vh - 170px);background:#000}
+.reel-video iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.reel-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px}
+.reel-foot a{color:var(--board-ink);font-size:.82rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Court<span>side</span> Tasks</h1>
+    <div class="who"><span class="date" id="today-date">&nbsp;</span><span id="who-name"></span><button type="button" id="signout" hidden>Sign out</button></div>
+  </header>
+
+  <section class="signin" id="signin" hidden>
+    <h2 style="font-family:var(--display);text-transform:uppercase;margin:0">Sign in to get on the court</h2>
+    <p>Use your Big Shine Microsoft account. Your tasks save to the "Courtside Tasks" folder in your OneDrive.</p>
+    <button class="btn" type="button" id="signin-btn">Sign in with Microsoft</button>
+    <p class="sync err" id="signin-err"></p>
+  </section>
+
+  <div id="app" hidden>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-tasks" aria-selected="true" aria-controls="view-tasks">Tasks</button>
+    <button class="tab" role="tab" id="tab-inbox" aria-selected="false" aria-controls="view-inbox">Needs attention<span class="count" id="inbox-count" hidden>0</span></button>
+  </nav>
+
+  <div id="view-tasks" role="tabpanel" aria-labelledby="tab-tasks">
+    <div class="grid">
+      <aside class="board" aria-label="Scoreboard">
+        <div class="today">
+          <div class="lbl">Completed today <span class="pill" id="pb-pill" hidden>Record</span></div>
+          <div class="num" id="s-today">0</div>
+          <div class="sub" id="s-today-sub">Check off a task to get on the board.</div>
+        </div>
+        <div class="pair">
+          <div>
+            <div class="lbl">Best day</div>
+            <div class="num" id="s-best">0</div>
+            <div class="sub" id="s-best-date">No games yet</div>
+          </div>
+          <div>
+            <div class="lbl">Previous days</div>
+            <div class="num" id="s-prev">0</div>
+            <div class="sub">completed before today</div>
+          </div>
+        </div>
+        <div class="days">
+          <div class="lbl">Last 7 days</div>
+          <ol id="s-days"></ol>
+        </div>
+        <div class="clips">
+          <a class="watch" href="https://www.youtube.com/@GoldenHoopsProduction/shorts" target="_blank" rel="noopener">Golden Hoops Shorts &#8599;</a>
+          <details id="clips-box">
+            <summary>My highlight clips (<span id="clips-n">0</span>)</summary>
+            <p class="sub">Paste YouTube Short links, one per line. Each time you finish a task, a random one plays.</p>
+            <label for="clips-text" style="position:absolute;left:-9999px">Highlight clip links</label>
+            <textarea id="clips-text" placeholder="https://www.youtube.com/shorts/..."></textarea>
+            <div class="row"><button class="btn" type="button" id="clips-save">Save clips</button><span class="sub" id="clips-msg"></span></div>
+          </details>
+        </div>
+      </aside>
+
+      <section class="list" aria-label="Tasks">
+        <h2>Running list</h2>
+        <form class="add" id="add-form" autocomplete="off">
+          <label for="new-task" style="position:absolute;left:-9999px">New task</label>
+          <input class="txt" id="new-task" maxlength="200" placeholder="Add a task and press Enter">
+          <button class="btn" type="submit">Add</button>
+        </form>
+        <div class="sec">
+          <h3 id="open-h">To do</h3>
+          <ul class="tasks" id="open-list"></ul>
+        </div>
+        <div class="sec" id="done-sec" hidden>
+          <h3>Done today</h3>
+          <ul class="tasks" id="done-list"></ul>
+        </div>
+        <div class="note sync" id="save-note">Loading your tasks...</div>
+      </section>
+    </div>
+  </div>
+
+  <div id="view-inbox" role="tabpanel" aria-labelledby="tab-inbox" hidden>
+    <section class="list" aria-label="Needs attention">
+      <div class="ibar">
+        <h2>Needs attention</h2>
+        <button class="btn ghost" id="inbox-refresh" type="button">Reload</button>
+      </div>
+      <p class="istatus" id="inbox-status">Claude checks your email and Teams every hour on weekdays, 8 AM to 6 PM.</p>
+      <div class="filters" id="inbox-filters" hidden>
+        <button class="chip" type="button" data-f="all" aria-pressed="true">All</button>
+        <button class="chip" type="button" data-f="email" aria-pressed="false">Email</button>
+        <button class="chip" type="button" data-f="apm" aria-pressed="false">Accounting + PMs</button>
+        <button class="chip" type="button" data-f="chat" aria-pressed="false">Teams chats</button>
+      </div>
+      <div class="items" id="inbox-items"></div>
+    </section>
+  </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <div class="msg" id="toast-msg"></div>
+  <div class="move"><span id="toast-move"></span><a href="https://www.youtube.com/@GoldenHoopsProduction/shorts" target="_blank" rel="noopener" id="toast-link">Watch a real one &#8599;</a></div>
+  <canvas id="hl" width="720" height="400" aria-hidden="true"></canvas>
+</div>
+
+<div class="reel" id="reel" hidden>
+  <div class="reel-card" role="dialog" aria-modal="true" aria-labelledby="reel-title">
+    <div class="reel-head" id="reel-title"></div>
+    <div class="reel-video" id="reel-video"></div>
+    <div class="reel-foot"><a id="reel-open" href="#" target="_blank" rel="noopener">Open on YouTube &#8599;</a><button class="btn" type="button" id="reel-close">Back to work</button></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ---------- config ----------
+  const CFG = {clientId: '09306133-64cf-4f19-9cee-fff2e2aa59c0', tenantId: 'dcc9f82a-b533-4ae2-be91-082d68c55704'};
+  const SCOPES = ['User.Read', 'Files.ReadWrite'];
+  const FOLDER = 'Courtside Tasks';
+  const GRAPH = 'https://graph.microsoft.com/v1.0';
+
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const pad = n => String(n).padStart(2,'0');
+  const dayKey = ms => { const d = new Date(ms); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); };
+  const fromKey = k => { const [y,m,d] = k.split('-').map(Number); return new Date(y, m-1, d); };
+  const fmtDay = k => fromKey(k).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  const fmtDow = k => fromKey(k).toLocaleDateString(undefined,{weekday:'short',month:'numeric',day:'numeric'});
+  const ago = ms => { const m = Math.round((Date.now()-ms)/60000); if (m < 1) return 'just now'; if (m < 60) return m + 'm ago'; const h = Math.round(m/60); if (h < 24) return h + 'h ago'; return Math.round(h/24) + 'd ago'; };
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+  const S = {data: {version: 1, tasks: [], clips: [], dismissed: [], added: []}, inbox: null, loaded: false, filter: 'all', sync: 'Loading your tasks...', syncErr: false};
+  const LOCAL = 'courtside-cache';
+  try { const c = JSON.parse(localStorage.getItem(LOCAL) || 'null'); if (c && c.tasks) S.data = c; } catch(e){}
+
+  // ---------- Microsoft sign-in ----------
+  let app = null, account = null;
+  async function startAuth(){
+    if (!window.msal) { $('signin').hidden = false; $('signin-err').textContent = 'The Microsoft sign-in library did not load. Check your connection and reload.'; return; }
+    app = new msal.PublicClientApplication({
+      auth: {clientId: CFG.clientId, authority: 'https://login.microsoftonline.com/' + CFG.tenantId, redirectUri: location.origin + location.pathname},
+      cache: {cacheLocation: 'localStorage'}
+    });
+    try {
+      const res = await app.handleRedirectPromise();
+      if (res && res.account) app.setActiveAccount(res.account);
+    } catch(e){ console.error(e); $('signin-err').textContent = signinError(e); }
+    account = app.getActiveAccount() || app.getAllAccounts()[0] || null;
+    if (account) { app.setActiveAccount(account); onSignedIn(); }
+    else { $('signin').hidden = false; }
+  }
+  function signinError(e){
+    const m = String(e && (e.errorMessage || e.message) || '');
+    if (/AADSTS65001|consent|admin/i.test(m)) return 'Your company requires an admin to approve this app. Send IT the request we drafted.';
+    if (/AADSTS50011|redirect/i.test(m)) return 'The site address isn’t registered. In Entra, add ' + location.origin + location.pathname + ' as a Single-page application redirect URI.';
+    return 'Sign-in did not finish: ' + m.slice(0, 160);
+  }
+  $('signin-btn').addEventListener('click', () => app && app.loginRedirect({scopes: SCOPES, prompt: 'select_account'}));
+  $('signout').addEventListener('click', () => { try { localStorage.removeItem(LOCAL); } catch(e){} app.logoutRedirect({account}); });
+
+  async function token(){
+    try { return (await app.acquireTokenSilent({scopes: SCOPES, account})).accessToken; }
+    catch(e){
+      if (e instanceof msal.InteractionRequiredAuthError) { await app.acquireTokenRedirect({scopes: SCOPES, account}); }
+      throw e;
+    }
+  }
+  async function graph(path, opts){
+    const t = await token();
+    opts = opts || {};
+    return fetch(GRAPH + path, Object.assign({}, opts, {headers: Object.assign({Authorization: 'Bearer ' + t}, opts.headers || {})}));
+  }
+  const filePath = name => '/me/drive/root:/' + encodeURIComponent(FOLDER) + '/' + encodeURIComponent(name) + ':/content';
+
+  // ---------- OneDrive sync ----------
+  let saveTimer = null, saving = Promise.resolve(), dirty = false;
+  function setSync(t, err){ S.sync = t; S.syncErr = !!err; const n = $('save-note'); n.textContent = t; n.className = 'note sync' + (err ? ' err' : ''); }
+  function cacheLocal(){ try { localStorage.setItem(LOCAL, JSON.stringify(S.data)); } catch(e){} }
+  function save(){
+    dirty = true; cacheLocal();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      const body = JSON.stringify(S.data);
+      setSync('Saving...');
+      saving = saving.then(async () => {
+        try {
+          const r = await graph(filePath('tracker.json'), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body});
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          dirty = false; setSync('Saved to OneDrive · Courtside Tasks');
+        } catch(e){ console.error(e); setSync('Not saved to OneDrive yet. It will retry on your next change; this browser kept a copy.', true); }
+      });
+    }, 700);
+  }
+  async function loadTracker(){
+    if (dirty) return;
+    try {
+      const r = await graph(filePath('tracker.json'));
+      if (r.status === 404) { S.loaded = true; save(); render(); return; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      if (!dirty && d && Array.isArray(d.tasks)) {
+        S.data = {version: 1, tasks: d.tasks, clips: d.clips || [], dismissed: d.dismissed || [], added: d.added || []};
+        cacheLocal();
+      }
+      S.loaded = true; setSync('Saved to OneDrive · Courtside Tasks'); render();
+    } catch(e){
+      console.error(e); S.loaded = true;
+      setSync(/403/.test(e.message) ? 'OneDrive access was refused. Sign out and back in, and approve the permissions.' : 'Could not reach OneDrive. Showing the copy saved in this browser.', true);
+      render();
+    }
+  }
+  async function loadInbox(){
+    try {
+      const r = await graph(filePath('inbox.json'));
+      if (r.status === 404) { S.inbox = {items: [], breakdown: 'Waiting for Claude’s first check.'}; renderInbox(); return; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      S.inbox = await r.json(); S.inboxErr = '';
+    } catch(e){ console.error(e); S.inboxErr = 'Could not load the list from OneDrive. Try Reload.'; }
+    renderInbox();
+  }
+  function onSignedIn(){
+    $('signin').hidden = true; $('app').hidden = false; $('signout').hidden = false;
+    $('who-name').textContent = account.name || account.username || '';
+    render(); loadTracker(); loadInbox();
+    setInterval(() => { if (!document.hidden) { loadTracker(); loadInbox(); } }, 3*60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadTracker(); loadInbox(); } });
+  }
+
+  // ---------- tabs ----------
+  function showTab(name){
+    const inbox = name === 'inbox';
+    $('view-tasks').hidden = inbox; $('view-inbox').hidden = !inbox;
+    $('tab-tasks').setAttribute('aria-selected', String(!inbox));
+    $('tab-inbox').setAttribute('aria-selected', String(inbox));
+    try { history.replaceState(null, '', '#' + name); } catch(e){}
+  }
+  $('tab-tasks').addEventListener('click', () => showTab('tasks'));
+  $('tab-inbox').addEventListener('click', () => { showTab('inbox'); loadInbox(); });
+  if (location.hash === '#inbox') showTab('inbox');
+
+  // ---------- tasks ----------
+  function stats(){
+    const counts = {};
+    S.data.tasks.forEach(t => { if (t.done && t.completedAt) { const k = dayKey(t.completedAt); counts[k] = (counts[k]||0)+1; } });
+    const tk = dayKey(Date.now());
+    const today = counts[tk] || 0;
+    let prev = 0, bestPrev = 0, best = 0, bestKey = null;
+    Object.keys(counts).forEach(k => {
+      if (k !== tk) { prev += counts[k]; bestPrev = Math.max(bestPrev, counts[k]); }
+      if (counts[k] > best || (counts[k] === best && k > (bestKey||''))) { best = counts[k]; bestKey = k; }
+    });
+    return {counts, tk, today, prev, best, bestKey, bestPrev};
+  }
+  function taskRow(t){
+    const li = el('li', t.done ? 'done' : '');
+    const b = el('button', 'chk'); b.type = 'button';
+    b.setAttribute('aria-label', (t.done ? 'Mark not done: ' : 'Complete: ') + t.title);
+    b.addEventListener('click', () => toggle(t));
+    const s = el('span', 't', t.title);
+    if (t.link && /^https:\/\//.test(t.link)) { const a = el('a', '', (t.src === 'email' ? 'email' : 'Teams') + ' ↗'); a.href = t.link; a.target = '_blank'; a.rel = 'noopener'; s.append(a); }
+    li.append(b, s);
+    if (t.done) li.append(el('span', 'time', new Date(t.completedAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})));
+    else { const x = el('button', 'x', '×'); x.type = 'button'; x.setAttribute('aria-label','Delete ' + t.title); x.addEventListener('click', () => remove(t)); li.append(x); }
+    return li;
+  }
+  function render(){
+    $('today-date').textContent = new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});
+    const st = stats();
+    $('s-today').textContent = st.today;
+    $('s-today-sub').textContent = st.today === 0 ? 'Check off a task to get on the board.'
+      : st.today > st.bestPrev && st.bestPrev > 0 ? 'Personal best, beat your old record of ' + st.bestPrev + '.'
+      : st.bestPrev > st.today ? (st.bestPrev - st.today) + ' more to tie your best day.'
+      : st.bestPrev === st.today && st.prev > 0 ? 'Tied with your best day.' : 'Nice start.';
+    $('pb-pill').hidden = !(st.today > 0 && st.today > st.bestPrev && st.bestPrev > 0);
+    $('s-best').textContent = st.best;
+    $('s-best-date').textContent = st.bestKey ? (st.bestKey === st.tk ? 'Today' : fmtDay(st.bestKey)) : 'No games yet';
+    $('s-prev').textContent = st.prev;
+    const ol = $('s-days'); ol.textContent = '';
+    const keys = [];
+    for (let i = 1; i <= 7; i++) { const d = new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-i); keys.push(dayKey(d.getTime())); }
+    const max = Math.max(1, ...keys.map(k => st.counts[k]||0));
+    if (st.prev === 0) { const li = el('li', 'empty', 'Your daily totals show up here starting tomorrow.'); li.style.display = 'block'; ol.append(li); }
+    else keys.forEach(k => {
+      const n = st.counts[k]||0;
+      const li = el('li', n && n === st.best ? 'best' : '');
+      const bar = el('span', 'bar'); const i = el('i'); i.style.width = (n/max*100) + '%'; bar.append(i);
+      li.append(el('span', 'd', fmtDow(k)), bar, el('span', 'n', String(n))); ol.append(li);
+    });
+    const open = S.data.tasks.filter(t => !t.done).sort((a,b) => (a.createdAt||0)-(b.createdAt||0));
+    const doneToday = S.data.tasks.filter(t => t.done && t.completedAt && dayKey(t.completedAt) === st.tk).sort((a,b) => b.completedAt-a.completedAt);
+    const ul = $('open-list'); ul.textContent = '';
+    $('open-h').textContent = 'To do' + (open.length ? ' (' + open.length + ')' : '');
+    if (!open.length) ul.append(el('li', 'hint', !S.loaded ? 'Loading...' : doneToday.length ? 'All clear. Add the next one above.' : 'Nothing here yet. Type your first task above and press Enter.'));
+    else open.forEach(t => ul.append(taskRow(t)));
+    $('done-sec').hidden = !doneToday.length;
+    const dl = $('done-list'); dl.textContent = '';
+    doneToday.forEach(t => dl.append(taskRow(t)));
+    showClips();
+    renderInbox();
+  }
+  function add(title, extra){
+    S.data.tasks.push(Object.assign({id: uid(), title, createdAt: Date.now(), done: false, completedAt: null}, extra || {}));
+    render(); save();
+  }
+  function toggle(t){
+    const before = stats();
+    t.done = !t.done; t.completedAt = t.done ? Date.now() : null;
+    render(); save();
+    if (t.done) celebrate(before.today + 1, before.bestPrev);
+  }
+  function remove(t){ S.data.tasks = S.data.tasks.filter(x => x !== t); render(); save(); }
+  $('add-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const v = $('new-task').value.trim(); if (!v) return;
+    add(v); $('new-task').value = ''; $('new-task').focus();
+  });
+
+  // ---------- clips ----------
+  const ytId = u => { const m = String(u).match(/(?:shorts\/|watch\?v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{6,20})/); return m ? m[1] : null; };
+  function cleanClips(text){
+    const out = [];
+    String(text||'').split(/[\s,]+/).forEach(u => { const id = ytId(u); if (id) { const url = 'https://www.youtube.com/shorts/' + id; if (out.indexOf(url) === -1) out.push(url); } });
+    return out.slice(0, 500);
+  }
+  function showClips(){
+    $('clips-n').textContent = S.data.clips.length;
+    if (document.activeElement !== $('clips-text')) $('clips-text').value = S.data.clips.join('\n');
+  }
+  $('clips-save').addEventListener('click', () => {
+    const raw = $('clips-text').value.trim();
+    S.data.clips = cleanClips(raw);
+    $('clips-text').value = S.data.clips.join('\n');
+    $('clips-msg').textContent = raw && !S.data.clips.length ? 'No YouTube links found.' : 'Saved ' + S.data.clips.length + ' clip' + (S.data.clips.length === 1 ? '' : 's') + '.';
+    render(); save();
+  });
+
+  // ---------- needs attention ----------
+  $('inbox-refresh').addEventListener('click', loadInbox);
+  $('inbox-filters').addEventListener('click', e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    S.filter = b.dataset.f;
+    document.querySelectorAll('#inbox-filters .chip').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    renderInbox();
+  });
+  function renderInbox(){
+    const ib = S.inbox || {items: []};
+    const items = (ib.items || []).filter(it => it && it.key && S.data.dismissed.indexOf(it.key) === -1);
+    const pending = items.filter(it => S.data.added.indexOf(it.key) === -1);
+    const cnt = $('inbox-count'); cnt.textContent = pending.length; cnt.hidden = !pending.length;
+    const st = $('inbox-status');
+    st.className = 'istatus' + (S.inboxErr ? ' err' : '');
+    st.textContent = S.inboxErr ? S.inboxErr
+      : ib.checkedAt ? 'Claude last checked ' + ago(Date.parse(ib.checkedAt)) + '. Read ' + (ib.breakdown || 'your messages') + '. Claude checks every hour on weekdays, 8 AM to 6 PM.'
+      : (ib.breakdown || 'Claude checks your email and Teams every hour on weekdays, 8 AM to 6 PM.');
+    $('inbox-filters').hidden = !items.length;
+    const box = $('inbox-items'); box.textContent = '';
+    const shown = items.filter(it => S.filter === 'all' || it.src === S.filter);
+    if (!shown.length) { box.append(el('div', 'hint', S.inbox ? (items.length ? 'Nothing in this filter.' : 'Nothing needs you right now. Nice.') : 'Loading...')); return; }
+    const srcName = {email: 'Email', apm: 'Accounting + PMs', chat: 'Teams'};
+    shown.forEach(it => {
+      const card = el('article', 'item ' + (it.action === 'task' ? 'task' : 'reply'));
+      const meta = el('div', 'meta');
+      const when = Date.parse(it.when);
+      meta.append(el('span', 'src', srcName[it.src] || 'Message'), el('span', 'kind', it.action === 'task' ? 'Task' : 'Reply'), el('span', '', (it.from || '') + (when ? ' · ' + ago(when) : '')));
+      card.append(meta);
+      if (it.src !== 'apm' && it.title) card.append(el('div', 'subj', it.src === 'chat' ? 'Chat: ' + it.title : it.title));
+      if (it.text) card.append(el('div', 'snip', it.text));
+      if (it.why) { const w = el('div', 'why'); w.append(el('b', '', 'Why: '), document.createTextNode(it.why)); card.append(w); }
+      const act = el('div', 'act');
+      if (S.data.added.indexOf(it.key) !== -1) act.append(el('span', 'added', 'Added to tasks ✓'));
+      else {
+        const inp = el('input', 'txt'); inp.value = it.task || it.title || ''; inp.maxLength = 200; inp.setAttribute('aria-label', 'Task title');
+        const addB = el('button', 'btn', 'Add to tasks'); addB.type = 'button';
+        addB.addEventListener('click', () => {
+          const v = inp.value.trim(); if (!v) { inp.focus(); return; }
+          S.data.added.push(it.key); if (S.data.added.length > 500) S.data.added = S.data.added.slice(-500);
+          add(v, {src: it.src === 'email' ? 'email' : 'teams', link: it.link || ''});
+        });
+        act.append(inp, addB);
+      }
+      if (it.link && /^https:\/\//.test(it.link)) { const a = el('a', '', 'Open ↗'); a.href = it.link; a.target = '_blank'; a.rel = 'noopener'; act.append(a); }
+      const d = el('button', 'btn ghost', 'Dismiss'); d.type = 'button';
+      d.addEventListener('click', () => { S.data.dismissed.push(it.key); if (S.data.dismissed.length > 500) S.data.dismissed = S.data.dismissed.slice(-500); render(); save(); });
+      act.append(d);
+      card.append(act);
+      box.append(card);
+    });
+  }
+
+  // ---------- celebration ----------
+  const CHEERS = ['Bucket!', 'Count it!', 'And one!', 'Nothing but net.', 'Clutch.', 'Too easy.', 'Cooking now.', 'Heat check!', 'From downtown!', 'Lockdown focus.', 'Big time play.', 'On fire.', 'Money.', 'Can’t guard you.'];
+  const SUBS = ['Keep the run going.', 'Next possession, same energy.', 'You’re in a rhythm.', 'Stack another one.', 'That’s how you close.', 'One play at a time.', 'Momentum is yours.', 'The bench is up.'];
+  const pick = a => a[Math.floor(Math.random()*a.length)];
+  let lastMove = -1, lastClip = -1, hideTimer = null, anim = null;
+  function cheerNodes(todayCount, bestPrev){
+    const record = bestPrev > 0 && todayCount > bestPrev;
+    const b = el('b', '', record ? 'New personal best!' : pick(CHEERS));
+    const sub = el('span', '', todayCount + (todayCount === 1 ? ' task' : ' tasks') + ' done today. ' + (record ? 'Old record was ' + bestPrev + '.' : pick(SUBS)));
+    return [b, sub];
+  }
+  function celebrate(todayCount, bestPrev){
+    const clips = S.data.clips || [];
+    if (clips.length) {
+      let i; do { i = Math.floor(Math.random()*clips.length); } while (i === lastClip && clips.length > 1);
+      lastClip = i;
+      const id = ytId(clips[i]);
+      if (id) {
+        const head = $('reel-title'); head.textContent = ''; head.append(...cheerNodes(todayCount, bestPrev));
+        const v = $('reel-video'); v.textContent = '';
+        const f = document.createElement('iframe');
+        f.src = 'https://www.youtube.com/embed/' + id + '?autoplay=1&playsinline=1&rel=0&modestbranding=1&loop=1&playlist=' + id;
+        f.title = 'Highlight clip';
+        f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+        f.referrerPolicy = 'strict-origin-when-cross-origin';
+        f.allowFullscreen = true;
+        v.append(f);
+        $('reel-open').href = clips[i];
+        $('reel').hidden = false;
+        $('reel-close').focus();
+        return;
+      }
+    }
+    const msg = $('toast-msg'); msg.textContent = ''; msg.append(...cheerNodes(todayCount, bestPrev));
+    let m; do { m = Math.floor(Math.random()*MOVES.length); } while (m === lastMove && MOVES.length > 1);
+    lastMove = m;
+    $('toast-move').textContent = 'Highlight: ' + MOVES[m].name;
+    $('toast').classList.add('show');
+    play(MOVES[m]);
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hideToast, 6000);
+  }
+  function closeReel(){ $('reel').hidden = true; $('reel-video').textContent = ''; }
+  $('reel-close').addEventListener('click', closeReel);
+  $('reel').addEventListener('click', e => { if (e.target === $('reel')) closeReel(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('reel').hidden) closeReel(); });
+  function hideToast(){ $('toast').classList.remove('show'); }
+  $('toast').addEventListener('click', e => { if (!e.target.closest('a')) hideToast(); });
+
+  // ---------- court animation (logical 360x200) ----------
+  const cv = $('hl'), ctx = cv.getContext('2d');
+  const FLOOR = 182, RX = 284, RY = 82, RW = 13, BOARD = 302;
+  const lerp = (a,b,u) => a + (b-a)*u;
+  const clamp = u => Math.max(0, Math.min(1, u));
+  const seg = (t,a,b) => clamp((t-a)/(b-a));
+  const ease = u => u<.5 ? 2*u*u : 1 - Math.pow(-2*u+2,2)/2;
+  function colors(){
+    const cs = getComputedStyle(document.documentElement);
+    const g = n => cs.getPropertyValue(n).trim();
+    return {ink: g('--board-ink'), dim: g('--board-dim'), orange: g('--orange'), board: g('--board')};
+  }
+  let C = colors();
+
+  function court(rimDip){
+    ctx.fillStyle = C.board; ctx.fillRect(0,0,360,200);
+    ctx.fillStyle = 'rgba(217,98,43,0.16)'; ctx.fillRect(0, FLOOR, 360, 18);
+    ctx.strokeStyle = C.dim; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(0, FLOOR); ctx.lineTo(360, FLOOR); ctx.stroke();
+    ctx.globalAlpha = .35; ctx.beginPath(); ctx.moveTo(110, FLOOR); ctx.lineTo(104, 200); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = C.dim; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(BOARD+18, FLOOR); ctx.lineTo(BOARD+18, 60); ctx.lineTo(BOARD+3, 60); ctx.stroke();
+    ctx.strokeStyle = C.ink; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(BOARD, 40); ctx.lineTo(BOARD, 92); ctx.stroke();
+    const ry = RY + rimDip;
+    ctx.strokeStyle = C.orange; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(RX-RW, ry); ctx.lineTo(BOARD, RY); ctx.stroke();
+    ctx.strokeStyle = C.ink; ctx.globalAlpha = .7; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i=0;i<=4;i++){ const x = RX-RW + i*RW/2; ctx.moveTo(x, ry); ctx.lineTo(lerp(RX-7, RX+7, i/4), ry+20); }
+    ctx.moveTo(RX-10, ry+10); ctx.lineTo(RX+10, ry+10);
+    ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  function ball(x,y){
+    ctx.fillStyle = C.orange; ctx.beginPath(); ctx.arc(x,y,6,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x-6,y); ctx.lineTo(x+6,y); ctx.moveTo(x,y-6); ctx.lineTo(x,y+6); ctx.stroke();
+  }
+  const pt = (x,y,a,L) => [x + Math.sin(a)*L, y + Math.cos(a)*L];
+  function player(p, color){
+    const sx = p.x + (p.lean||0), sy = p.y - 38;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineCap = 'round'; ctx.lineWidth = 6;
+    const k1 = pt(p.x, p.y, p.legA, 16), f1 = pt(k1[0], k1[1], p.legA*.4 + (p.kneeA||0), 16);
+    const k2 = pt(p.x, p.y, p.legB, 16), f2 = pt(k2[0], k2[1], p.legB*.4 + (p.kneeB||0), 16);
+    ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(k1[0],k1[1]); ctx.lineTo(f1[0],f1[1]);
+    ctx.moveTo(p.x,p.y); ctx.lineTo(k2[0],k2[1]); ctx.lineTo(f2[0],f2[1]); ctx.stroke();
+    ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(sx,sy); ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx + (p.lean||0)*.2, sy-12, 7.5, 0, Math.PI*2); ctx.fill();
+    ctx.lineWidth = 5;
+    const h1 = pt(sx, sy, p.armA, 27), h2 = pt(sx, sy, p.armB, 27);
+    ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(h1[0],h1[1]); ctx.moveTo(sx,sy); ctx.lineTo(h2[0],h2[1]); ctx.stroke();
+    return {h1, h2};
+  }
+  const HIP = FLOOR - 31;
+  function run(x, t, speed){ const ph = Math.sin(t*speed); return {x, y: HIP - Math.abs(ph)*2, legA: .55*ph, legB: -.55*ph, kneeA: -.3, kneeB: -.3, lean: 4}; }
+  function dribble(x, t, freq, side){ const b = t*freq, u = b - Math.floor(b); return [x + side*16, lerp(HIP-6, FLOOR-6, Math.sin(Math.PI*u))]; }
+  function rimDipAt(t, t0){ const u = t - t0; return u > 0 && u < .18 ? Math.sin(u*70) * 5 * (1 - u/.18) : 0; }
+  function label(text, t, t0){
+    if (t < t0) return;
+    ctx.globalAlpha = clamp((t-t0)/.06);
+    ctx.fillStyle = C.ink; ctx.font = '800 22px "Big Shoulders Display", Impact, sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(text.toUpperCase(), 14, 30); ctx.globalAlpha = 1;
+  }
+  function shotArc(from, t0, t1, t){
+    const u = seg(t, t0, t1), to = [RX, RY - 4];
+    const cx = (from[0]+to[0])/2, cy = Math.min(from[1], to[1]) - 70;
+    return [(1-u)*(1-u)*from[0] + 2*(1-u)*u*cx + u*u*to[0], (1-u)*(1-u)*from[1] + 2*(1-u)*u*cy + u*u*to[1]];
+  }
+  function dropThrough(t, t0){ const u = seg(t, t0, t0+.18); return [RX, lerp(RY-4, FLOOR-6, u*u)]; }
+
+  const MOVES = [
+    { name: 'Crossover, ankles broken', draw(t){
+        court(0);
+        const x = lerp(40, 236, ease(seg(t, 0, .72)));
+        const p = run(x, t, 40);
+        const fall = ease(seg(t, .5, .7));
+        ctx.save(); ctx.translate(190, FLOOR); ctx.rotate(fall*1.35);
+        player({x:0, y:-31, legA:.25, legB:-.25, armA:-1.0+fall*.8, armB:1.0+fall, lean:-3}, C.dim);
+        ctx.restore();
+        const side = Math.floor(t*7) % 2 ? 1 : -1, u = (t*7) % 1;
+        const bx = x + lerp(-side, side, ease(u))*16;
+        const by = t < .78 ? lerp(HIP-6, FLOOR-6, Math.sin(Math.PI*u)) : HIP - 10;
+        p.armA = side > 0 ? .5 : .2; p.armB = side > 0 ? -.2 : -.5;
+        player(p, C.ink);
+        ball(t < .78 ? bx : x + 12, by);
+        label('Ankles broken', t, .62);
+    }},
+    { name: 'Tomahawk dunk', draw(t){
+        const j = seg(t, .42, .8), slam = .42 + .38*.55;
+        court(rimDipAt(t, slam));
+        let x, p;
+        if (t < .42) { x = lerp(30, 222, t/.42); p = run(x, t, 42); p.armA = .4; p.armB = -.3; }
+        else { x = lerp(222, 300, j); const h = Math.sin(Math.PI*j) * 58;
+          p = {x, y: HIP - h, legA: .5, legB: -.2, kneeA: -.9, kneeB: -.5, lean: 3, armA: j < .55 ? lerp(2.2, 3.4, j/.55) : lerp(3.4, 1.4, seg(j,.55,1)), armB: -1.2}; }
+        const hands = player(p, C.ink);
+        if (t < .42) ball(...dribble(x, t, 6, 1));
+        else if (t < slam) ball(hands.h1[0], hands.h1[1]);
+        else ball(...dropThrough(t, slam));
+        label('Slam!', t, slam);
+    }},
+    { name: 'Step-back three', draw(t){
+        const rel = .52, swish = .84;
+        court(0);
+        let x, p;
+        if (t < .3) { x = lerp(40, 140, t/.3); p = run(x, t, 40); p.armA = .4; p.armB = -.3; }
+        else if (t < .4) { x = lerp(140, 112, ease(seg(t,.3,.4))); p = {x, y: HIP, legA: -.4, legB: .3, kneeA:-.2, kneeB:-.2, lean: -4, armA: .3, armB: -.3}; }
+        else { x = 112; const h = Math.sin(Math.PI*seg(t, .4, .66)) * 26;
+          p = {x, y: HIP - h, legA: .1, legB: -.1, kneeA: -.2, kneeB: .2, lean: 0, armA: t < rel ? lerp(1.6, 2.9, seg(t,.4,rel)) : 2.6, armB: t < rel ? lerp(1.2, 2.6, seg(t,.4,rel)) : 2.3}; }
+        const hands = player(p, C.ink);
+        const from = [112+9, HIP - 26 - 38 - 25];
+        if (t < .3) ball(...dribble(x, t, 6, 1));
+        else if (t < .4) ball(x + 14, HIP - 12);
+        else if (t < rel) ball(hands.h1[0], hands.h1[1]);
+        else if (t < swish) ball(...shotArc(from, rel, swish, t));
+        else ball(...dropThrough(t, swish));
+        label('Splash!', t, swish);
+    }},
+    { name: 'Windmill dunk', draw(t){
+        const slam = .42 + .4*.62, j = seg(t, .42, .82);
+        court(rimDipAt(t, slam));
+        let x, p;
+        if (t < .42) { x = lerp(30, 214, t/.42); p = run(x, t, 42); p.armA = .4; p.armB = -.3; }
+        else { x = lerp(214, 300, j); const h = Math.sin(Math.PI*j) * 60;
+          const a = j < .62 ? Math.PI + 2*Math.PI*(j/.62) - .35 : lerp(3*Math.PI - .35, 3*Math.PI - 1.6, seg(j,.62,1));
+          p = {x, y: HIP - h, legA: .6, legB: -.3, kneeA: -1.0, kneeB: -.4, lean: 3, armA: a, armB: -1.4}; }
+        const hands = player(p, C.ink);
+        if (t < .42) ball(...dribble(x, t, 6, 1));
+        else if (t < slam) ball(hands.h1[0], hands.h1[1]);
+        else ball(...dropThrough(t, slam));
+        label('Windmill!', t, slam);
+    }},
+    { name: 'Alley-oop', draw(t){
+        const catchT = .62, slam = .7;
+        court(rimDipAt(t, slam));
+        const passer = {x: 70, y: HIP, legA: .2, legB: -.2, kneeA: -.2, kneeB: -.2, lean: 2,
+                        armA: t < .2 ? .4 : lerp(1.8, 2.4, seg(t,.2,.3)), armB: t < .2 ? -.3 : lerp(1.4, 2.2, seg(t,.2,.3))};
+        const ph = player(passer, C.dim);
+        let x, p; const j = seg(t, .45, .85);
+        if (t < .45) { x = lerp(150, 232, t/.45); p = run(x, t, 42); p.armA = -.3; p.armB = .3; }
+        else { x = lerp(232, 292, j); const h = Math.sin(Math.PI*j)*62;
+          p = {x, y: HIP - h, legA: .5, legB: -.3, kneeA: -.9, kneeB: -.4, lean: 3, armA: t < slam ? lerp(2.4, 3.1, seg(t,.45,catchT)) : lerp(3.1, 1.6, seg(t, slam, .85)), armB: 2.6}; }
+        const hands = player(p, C.ink);
+        if (t < .25) ball(ph.h1[0], ph.h1[1]);
+        else if (t < catchT) {
+          const u = seg(t, .25, catchT), jc = seg(catchT,.45,.85);
+          const to = [lerp(232,292,jc) + 4, HIP - Math.sin(Math.PI*jc)*62 - 38 - 26];
+          ball(lerp(ph.h1[0], to[0], u), lerp(ph.h1[1], to[1], u) - Math.sin(Math.PI*u)*55);
+        }
+        else if (t < slam) ball(hands.h1[0], hands.h1[1]);
+        else ball(...dropThrough(t, slam));
+        label('Alley-oop!', t, slam);
+    }}
+  ];
+
+  function play(move){
+    if (anim) cancelAnimationFrame(anim);
+    C = colors();
+    ctx.setTransform(2,0,0,2,0,0);
+    const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { move.draw(.99); return; }
+    const dur = 3000, start = performance.now();
+    const step = now => { const t = Math.min(1, (now - start) / dur); ctx.clearRect(0,0,360,200); move.draw(t); if (t < 1) anim = requestAnimationFrame(step); };
+    anim = requestAnimationFrame(step);
+  }
+
+
+  setInterval(() => { if ($('today-date').textContent !== new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'})) render(); }, 60000);
+  render();
+  startAuth();
+})();
+</script>
+</body>
+</html>
