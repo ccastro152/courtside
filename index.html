@@ -135,6 +135,17 @@ ul.tasks li:last-child{border-bottom:0}
 @media (prefers-reduced-motion:reduce){.toast{transition:none}}
 
 /* site-only additions */
+.links{display:flex;flex-wrap:wrap;gap:8px;margin:-4px 0 14px}
+.links a{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);border-radius:99px;background:var(--panel);color:var(--ink);font-size:.85rem;font-weight:600;text-decoration:none}
+.links a:hover{border-color:var(--orange)}
+.dayh{display:flex;justify-content:space-between;align-items:baseline;margin:18px 0 4px;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.dayh:first-child{margin-top:4px}
+.badge{flex:none;font-size:.68rem;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:99px;background:var(--orange-soft);color:var(--ink);white-space:nowrap}
+.cfilters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.toast.compact .move,.toast.compact canvas{display:none}
+.toast.compact .msg{padding-bottom:12px}
+.toast .msg .next{display:block;color:var(--board-dim);font-size:.8rem;font-weight:500;margin-top:2px}
+
 .signin{max-width:440px;margin:60px auto;text-align:center;display:grid;gap:14px;justify-items:center}
 .signin p{color:var(--muted);margin:0}
 .sync{font-size:.8rem;color:var(--muted)}
@@ -166,8 +177,14 @@ ul.tasks li:last-child{border-bottom:0}
   </section>
 
   <div id="app" hidden>
+  <nav class="links" aria-label="Dashboards">
+    <a href="https://claude.ai/artifact/1UAV8raLf9eSR6rmMMSjpr" target="_blank" rel="noopener">ProjectSight Billing Desk &#8599;</a>
+    <a href="https://claude.ai/artifact/ByYuLR2LTfVGeJS4b5MGVa" target="_blank" rel="noopener">AP &amp; AR Desk &#8599;</a>
+    <a href="https://claude.ai/artifact/JaNPXt46NjMKJgsRSYaRgn" target="_blank" rel="noopener">Cash Flow Forecast &#8599;</a>
+  </nav>
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" id="tab-tasks" aria-selected="true" aria-controls="view-tasks">Tasks</button>
+    <button class="tab" role="tab" id="tab-done" aria-selected="false" aria-controls="view-done">Completed<span class="count" id="done-count" hidden>0</span></button>
     <button class="tab" role="tab" id="tab-inbox" aria-selected="false" aria-controls="view-inbox">Needs attention<span class="count" id="inbox-count" hidden>0</span></button>
   </nav>
 
@@ -218,13 +235,24 @@ ul.tasks li:last-child{border-bottom:0}
           <h3 id="open-h">To do</h3>
           <ul class="tasks" id="open-list"></ul>
         </div>
-        <div class="sec" id="done-sec" hidden>
-          <h3>Done today</h3>
-          <ul class="tasks" id="done-list"></ul>
-        </div>
         <div class="note sync" id="save-note">Loading your tasks...</div>
+        <div class="note" style="opacity:.7">Version 5 &middot; highlight every 5th task</div>
       </section>
     </div>
+  </div>
+
+  <div id="view-done" role="tabpanel" aria-labelledby="tab-done" hidden>
+    <section class="list" aria-label="Completed tasks">
+      <div class="ibar"><h2>Completed</h2></div>
+      <p class="istatus">Everything you've finished, newest first. Uncheck a task to send it back to your Tasks list. Work you complete in the Billing Desk and AP &amp; AR Desk (invoices, POs, bills and card charges you create in NetSuite) is added here automatically.</p>
+      <div class="cfilters" id="done-filters">
+        <button class="chip" type="button" data-f="all" aria-pressed="true">All</button>
+        <button class="chip" type="button" data-f="mine" aria-pressed="false">My tasks</button>
+        <button class="chip" type="button" data-f="Billing Desk" aria-pressed="false">Billing Desk</button>
+        <button class="chip" type="button" data-f="AP &amp; AR Desk" aria-pressed="false">AP &amp; AR Desk</button>
+      </div>
+      <div id="done-list"></div>
+    </section>
   </div>
 
   <div id="view-inbox" role="tabpanel" aria-labelledby="tab-inbox" hidden>
@@ -348,10 +376,10 @@ ul.tasks li:last-child{border-bottom:0}
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       if (!dirty && d && Array.isArray(d.tasks)) {
-        S.data = {version: 1, tasks: d.tasks, clips: d.clips || [], dismissed: d.dismissed || [], added: d.added || []};
+        S.data = {version: 1, tasks: d.tasks, clips: d.clips || [], dismissed: d.dismissed || [], added: d.added || [], imported: d.imported || []};
         cacheLocal();
       }
-      S.loaded = true; setSync('Saved to OneDrive · Courtside Tasks'); render();
+      S.loaded = true; setSync('Saved to OneDrive \u00b7 Courtside Tasks'); render(); loadDone();
     } catch(e){
       console.error(e); S.loaded = true;
       setSync(/403/.test(e.message) ? 'OneDrive access was refused. Sign out and back in, and approve the permissions.' : 'Could not reach OneDrive. Showing the copy saved in this browser.', true);
@@ -372,20 +400,23 @@ ul.tasks li:last-child{border-bottom:0}
     $('who-name').textContent = account.name || account.username || '';
     render(); loadTracker(); loadInbox();
     setInterval(() => { if (!document.hidden) { loadTracker(); loadInbox(); } }, 3*60000);
+    setInterval(() => { if (!document.hidden) loadDone(); }, 10*60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadTracker(); loadInbox(); } });
   }
 
   // ---------- tabs ----------
   function showTab(name){
-    const inbox = name === 'inbox';
-    $('view-tasks').hidden = inbox; $('view-inbox').hidden = !inbox;
-    $('tab-tasks').setAttribute('aria-selected', String(!inbox));
-    $('tab-inbox').setAttribute('aria-selected', String(inbox));
+    ['tasks','done','inbox'].forEach(n => {
+      $('view-' + n).hidden = n !== name;
+      $('tab-' + n).setAttribute('aria-selected', String(n === name));
+    });
     try { history.replaceState(null, '', '#' + name); } catch(e){}
   }
   $('tab-tasks').addEventListener('click', () => showTab('tasks'));
+  $('tab-done').addEventListener('click', () => { showTab('done'); loadDone(); });
   $('tab-inbox').addEventListener('click', () => { showTab('inbox'); loadInbox(); });
   if (location.hash === '#inbox') showTab('inbox');
+  if (location.hash === '#done') showTab('done');
 
   // ---------- tasks ----------
   function stats(){
@@ -406,10 +437,11 @@ ul.tasks li:last-child{border-bottom:0}
     b.setAttribute('aria-label', (t.done ? 'Mark not done: ' : 'Complete: ') + t.title);
     b.addEventListener('click', () => toggle(t));
     const s = el('span', 't', t.title);
-    if (t.link && /^https:\/\//.test(t.link)) { const a = el('a', '', (t.src === 'email' ? 'email' : 'Teams') + ' ↗'); a.href = t.link; a.target = '_blank'; a.rel = 'noopener'; s.append(a); }
+    if (t.link && /^https:\/\//.test(t.link)) { const a = el('a', '', (t.src === 'email' ? 'email' : t.src === 'netsuite' ? 'NetSuite' : 'Teams') + ' \u2197'); a.href = t.link; a.target = '_blank'; a.rel = 'noopener'; s.append(a); }
     li.append(b, s);
+    if (t.source) li.append(el('span', 'badge', t.source));
     if (t.done) li.append(el('span', 'time', new Date(t.completedAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})));
-    else { const x = el('button', 'x', '×'); x.type = 'button'; x.setAttribute('aria-label','Delete ' + t.title); x.addEventListener('click', () => remove(t)); li.append(x); }
+    const x = el('button', 'x', '\u00d7'); x.type = 'button'; x.setAttribute('aria-label','Delete ' + t.title); x.addEventListener('click', () => remove(t)); li.append(x);
     return li;
   }
   function render(){
@@ -436,17 +468,67 @@ ul.tasks li:last-child{border-bottom:0}
       li.append(el('span', 'd', fmtDow(k)), bar, el('span', 'n', String(n))); ol.append(li);
     });
     const open = S.data.tasks.filter(t => !t.done).sort((a,b) => (a.createdAt||0)-(b.createdAt||0));
-    const doneToday = S.data.tasks.filter(t => t.done && t.completedAt && dayKey(t.completedAt) === st.tk).sort((a,b) => b.completedAt-a.completedAt);
+    const doneToday = S.data.tasks.filter(t => t.done && t.completedAt && dayKey(t.completedAt) === st.tk);
     const ul = $('open-list'); ul.textContent = '';
     $('open-h').textContent = 'To do' + (open.length ? ' (' + open.length + ')' : '');
     if (!open.length) ul.append(el('li', 'hint', !S.loaded ? 'Loading...' : doneToday.length ? 'All clear. Add the next one above.' : 'Nothing here yet. Type your first task above and press Enter.'));
     else open.forEach(t => ul.append(taskRow(t)));
-    $('done-sec').hidden = !doneToday.length;
-    const dl = $('done-list'); dl.textContent = '';
-    doneToday.forEach(t => dl.append(taskRow(t)));
+    renderDone();
     showClips();
     renderInbox();
   }
+  function renderDone(){
+    const all = S.data.tasks.filter(t => t.done && t.completedAt);
+    const cnt = $('done-count'); cnt.textContent = all.length; cnt.hidden = !all.length;
+    const f = S.doneFilter || 'all';
+    const list = all.filter(t => f === 'all' || (f === 'mine' ? !t.source : t.source === f)).sort((a,b) => b.completedAt - a.completedAt);
+    const box = $('done-list'); box.textContent = '';
+    if (!list.length) { box.append(el('div', 'hint', all.length ? 'Nothing in this filter.' : 'Finished tasks show up here with the date you completed them.')); return; }
+    let cur = null, ul = null, n = 0, head = null;
+    list.forEach(t => {
+      const k = dayKey(t.completedAt);
+      if (k !== cur) {
+        cur = k; n = 0;
+        head = el('div', 'dayh');
+        const label = k === dayKey(Date.now()) ? 'Today' : fromKey(k).toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});
+        head.append(el('span', '', label), el('span', ''));
+        ul = el('ul', 'tasks');
+        box.append(head, ul);
+      }
+      n++; head.lastChild.textContent = n + (n === 1 ? ' task' : ' tasks');
+      ul.append(taskRow(t));
+    });
+  }
+  $('done-filters').addEventListener('click', e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    S.doneFilter = b.dataset.f;
+    document.querySelectorAll('#done-filters .chip').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    renderDone();
+  });
+
+  // ---------- dashboard completions (Billing Desk, AP & AR Desk via NetSuite) ----------
+  async function loadDone(){
+    if (!S.loaded || dirty) return;
+    try {
+      const r = await graph(filePath('done.json'));
+      if (!r.ok) return;
+      const d = await r.json();
+      if (!S.loaded || dirty || !d || !Array.isArray(d.items)) return;
+      const imported = S.data.imported || (S.data.imported = []);
+      let changed = false;
+      d.items.forEach(it => {
+        if (!it || !it.key || imported.indexOf(it.key) !== -1) return;
+        const when = Date.parse(it.completedAt) || Date.now();
+        const match = it.taskId && S.data.tasks.find(t => t.id === it.taskId && !t.done);
+        if (match) { match.done = true; match.completedAt = when; if (!match.source) match.source = it.source; }
+        else S.data.tasks.push({id: 'd' + it.key.replace(/[^A-Za-z0-9]/g, ''), title: String(it.title || 'Completed in NetSuite').slice(0, 200), createdAt: when, done: true, completedAt: when, source: it.source || 'NetSuite', src: 'netsuite', link: /^https:\/\//.test(it.link || '') ? it.link : ''});
+        imported.push(it.key); changed = true;
+      });
+      if (imported.length > 3000) S.data.imported = imported.slice(-3000);
+      if (changed) { render(); save(); }
+    } catch(e){ console.error(e); }
+  }
+
   function add(title, extra){
     S.data.tasks.push(Object.assign({id: uid(), title, createdAt: Date.now(), done: false, completedAt: null}, extra || {}));
     render(); save();
@@ -455,7 +537,12 @@ ul.tasks li:last-child{border-bottom:0}
     const before = stats();
     t.done = !t.done; t.completedAt = t.done ? Date.now() : null;
     render(); save();
-    if (t.done) celebrate(before.today + 1, before.bestPrev);
+    if (t.done) {
+      // Highlights count only tasks you check off yourself today (not ones added from NetSuite)
+      const tk = dayKey(Date.now());
+      const mine = S.data.tasks.filter(x => x.done && x.completedAt && dayKey(x.completedAt) === tk && x.src !== 'netsuite').length;
+      celebrate(before.today + 1, before.bestPrev, mine);
+    }
   }
   function remove(t){ S.data.tasks = S.data.tasks.filter(x => x !== t); render(); save(); }
   $('add-form').addEventListener('submit', e => {
@@ -547,9 +634,11 @@ ul.tasks li:last-child{border-bottom:0}
     const sub = el('span', '', todayCount + (todayCount === 1 ? ' task' : ' tasks') + ' done today. ' + (record ? 'Old record was ' + bestPrev + '.' : pick(SUBS)));
     return [b, sub];
   }
-  function celebrate(todayCount, bestPrev){
+  function celebrate(todayCount, bestPrev, myCount){
     const clips = S.data.clips || [];
-    if (clips.length) {
+    const n = myCount || todayCount;
+    const highlight = n > 0 && n % 5 === 0;
+    if (highlight && clips.length) {
       let i; do { i = Math.floor(Math.random()*clips.length); } while (i === lastClip && clips.length > 1);
       lastClip = i;
       const id = ytId(clips[i]);
@@ -564,19 +653,29 @@ ul.tasks li:last-child{border-bottom:0}
         f.allowFullscreen = true;
         v.append(f);
         $('reel-open').href = clips[i];
+        hideToast();
         $('reel').hidden = false;
         $('reel-close').focus();
         return;
       }
     }
     const msg = $('toast-msg'); msg.textContent = ''; msg.append(...cheerNodes(todayCount, bestPrev));
-    let m; do { m = Math.floor(Math.random()*MOVES.length); } while (m === lastMove && MOVES.length > 1);
-    lastMove = m;
-    $('toast-move').textContent = 'Highlight: ' + MOVES[m].name;
-    $('toast').classList.add('show');
-    play(MOVES[m]);
+    const toast = $('toast');
+    if (highlight) {
+      // 5th task but no clips saved: show the animated highlight instead
+      let m; do { m = Math.floor(Math.random()*MOVES.length); } while (m === lastMove && MOVES.length > 1);
+      lastMove = m;
+      $('toast-move').textContent = 'Highlight: ' + MOVES[m].name;
+      toast.classList.remove('compact');
+      play(MOVES[m]);
+    } else {
+      const left = 5 - (n % 5);
+      msg.append(el('span', 'next', left === 1 ? 'One more for a highlight.' : left + ' more for a highlight.'));
+      toast.classList.add('compact');
+    }
+    toast.classList.add('show');
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(hideToast, 6000);
+    hideTimer = setTimeout(hideToast, highlight ? 6000 : 3200);
   }
   function closeReel(){ $('reel').hidden = true; $('reel-video').textContent = ''; }
   $('reel-close').addEventListener('click', closeReel);
