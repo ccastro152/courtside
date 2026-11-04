@@ -157,6 +157,14 @@ ul.tasks li:last-child{border-bottom:0}
 .who-chip{border:1px dashed var(--line);background:transparent;color:var(--muted);border-radius:99px;padding:2px 10px;font-size:.75rem;font-weight:600;white-space:nowrap;max-width:12rem;overflow:hidden;text-overflow:ellipsis}
 .who-chip.set{border-style:solid;background:var(--orange-soft);color:var(--ink)}
 .who-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.for-in{flex:none;width:8.5rem;font:inherit;font-size:.78rem;padding:3px 9px;border:1px solid var(--line);border-radius:99px;background:transparent;color:var(--ink)}
+.for-in::placeholder{color:var(--muted)}
+.for-in:hover{border-color:var(--muted)}
+.for-in:focus{outline:none;border-color:var(--orange);background:var(--bg)}
+.for-in.set{background:var(--orange-soft);border-color:transparent;font-weight:600}
+.pfilter{font:inherit;font-size:.82rem;padding:4px 10px;border:1px solid var(--line);border-radius:99px;background:var(--panel);color:var(--ink);max-width:12rem}
+.listtools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+@media (max-width:600px){.for-in{width:6.5rem}}
 .who-edit{width:9rem;font:inherit;font-size:.8rem;padding:3px 8px;border:1px solid var(--orange);border-radius:99px;background:var(--bg);color:var(--ink)}
 .addrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,10rem) auto;gap:8px}
 @media (max-width:520px){.addrow{grid-template-columns:minmax(0,1fr) auto}.addrow #new-person{grid-column:1 / -1;grid-row:2}}
@@ -264,22 +272,26 @@ ul.tasks li:last-child{border-bottom:0}
           <label for="new-task" style="position:absolute;left:-9999px">New task</label>
           <input class="txt" id="new-task" maxlength="200" placeholder="Add a task and press Enter">
           <label for="new-person" style="position:absolute;left:-9999px">Person (optional)</label>
-          <input class="txt" id="new-person" maxlength="60" placeholder="Person (optional)" list="people-list">
+          <input class="txt" id="new-person" maxlength="60" placeholder="For (optional)" list="people-list">
           <button class="btn" type="submit">Add</button>
         </form>
         <datalist id="people-list"></datalist>
         <div class="sec">
           <div class="listbar">
             <h3 id="open-h">To do</h3>
-            <div class="filters" id="group-mode" style="margin:0">
-              <button class="chip" type="button" data-g="list" aria-pressed="true">List</button>
-              <button class="chip" type="button" data-g="person" aria-pressed="false">By person</button>
+            <div class="listtools">
+              <label for="person-filter" style="position:absolute;left:-9999px">Show tasks for</label>
+              <select id="person-filter" class="pfilter"><option value="">Everyone</option></select>
+              <div class="filters" id="group-mode" style="margin:0">
+                <button class="chip" type="button" data-g="list" aria-pressed="true">List</button>
+                <button class="chip" type="button" data-g="person" aria-pressed="false">By person</button>
+              </div>
             </div>
           </div>
           <div id="open-list"></div>
         </div>
         <div class="note sync" id="save-note">Loading your tasks...</div>
-        <div class="note" style="opacity:.7">Version 6 &middot; people groups and the Dock</div>
+        <div class="note" style="opacity:.7">Version 7 &middot; For field, person filter, the Dock</div>
       </section>
     </div>
   </div>
@@ -484,7 +496,7 @@ ul.tasks li:last-child{border-bottom:0}
     if (t.link && /^https:\/\//.test(t.link)) { const a = el('a', '', (t.src === 'email' ? 'email' : t.src === 'netsuite' ? 'NetSuite' : 'Teams') + ' \u2197'); a.href = t.link; a.target = '_blank'; a.rel = 'noopener'; s.append(a); }
     li.append(b, s);
     if (opts.inDock) { if (t.person) { const w = el('span', '', t.person); w.style.cssText = 'display:block;font-size:.78rem;color:var(--muted)'; s.append(w); } }
-    else if (!t.done) li.append(personChip(t));
+    else if (!t.done) li.append(forField(t));
     else if (t.person) li.append(el('span', 'who-chip set', t.person));
     if (!t.done && !opts.inDock) {
       const p = el('button', 'pin' + (t.docked ? ' on' : ''), t.docked ? 'Docked' : '+ Dock'); p.type = 'button';
@@ -525,11 +537,14 @@ ul.tasks li:last-child{border-bottom:0}
       const bar = el('span', 'bar'); const i = el('i'); i.style.width = (n/max*100) + '%'; bar.append(i);
       li.append(el('span', 'd', fmtDow(k)), bar, el('span', 'n', String(n))); ol.append(li);
     });
-    const open = S.data.tasks.filter(t => !t.done).sort((a,b) => (a.createdAt||0)-(b.createdAt||0));
+    const openAll = S.data.tasks.filter(t => !t.done).sort((a,b) => (a.createdAt||0)-(b.createdAt||0));
+    const pf = S.personFilter || '';
+    const open = pf === '__none' ? openAll.filter(t => !(t.person||'').trim())
+      : pf ? openAll.filter(t => (t.person||'').trim().toLowerCase() === pf.toLowerCase()) : openAll;
     const doneToday = S.data.tasks.filter(t => t.done && t.completedAt && dayKey(t.completedAt) === st.tk);
     const box = $('open-list'); box.textContent = '';
-    $('open-h').textContent = 'To do' + (open.length ? ' (' + open.length + ')' : '');
-    if (!open.length) box.append(el('div', 'hint', !S.loaded ? 'Loading...' : doneToday.length ? 'All clear. Add the next one above.' : 'Nothing here yet. Type your first task above and press Enter.'));
+    $('open-h').textContent = 'To do' + (open.length ? ' (' + open.length + (pf ? ' of ' + openAll.length : '') + ')' : '');
+    if (!open.length) box.append(el('div', 'hint', !S.loaded ? 'Loading...' : pf ? 'No open tasks for this person.' : doneToday.length ? 'All clear. Add the next one above.' : 'Nothing here yet. Type your first task above and press Enter.'));
     else if ((S.data.groupMode || 'list') === 'person') {
       const groups = {};
       open.forEach(t => { const k = (t.person || '').trim(); (groups[k] = groups[k] || []).push(t); });
@@ -544,7 +559,17 @@ ul.tasks li:last-child{border-bottom:0}
       const ul = el('ul', 'tasks'); open.forEach(t => ul.append(taskRow(t))); box.append(ul);
     }
     document.querySelectorAll('#group-mode .chip').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.g === (S.data.groupMode || 'list'))));
-    renderDock(open);
+    renderDock(openAll);
+    const sel = $('person-filter');
+    if (document.activeElement !== sel) {
+      sel.textContent = '';
+      const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); };
+      opt('', 'Everyone');
+      people().forEach(n => opt(n, n));
+      opt('__none', 'No one assigned');
+      sel.value = pf;
+      if (sel.value !== pf) { S.personFilter = ''; sel.value = ''; }
+    }
     const dl = $('people-list'); dl.textContent = '';
     people().forEach(n => { const o = document.createElement('option'); o.value = n; dl.append(o); });
     renderDone();
@@ -556,6 +581,21 @@ ul.tasks li:last-child{border-bottom:0}
     const set = {};
     S.data.tasks.forEach(t => { const n = (t.person || '').trim(); if (n) set[n.toLowerCase()] = set[n.toLowerCase()] || n; });
     return Object.values(set).sort((a,b) => a.localeCompare(b));
+  }
+  function forField(t){
+    const inp = el('input', 'for-in' + (t.person ? ' set' : ''));
+    inp.value = t.person || ''; inp.placeholder = 'For'; inp.maxLength = 60;
+    inp.setAttribute('list', 'people-list');
+    inp.setAttribute('aria-label', 'Who this task is for: ' + t.title);
+    const commit = () => {
+      const v = inp.value.trim();
+      if (v === (t.person || '')) return;
+      if (v) t.person = v; else delete t.person;
+      save(); render();
+    };
+    inp.addEventListener('change', commit);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } if (e.key === 'Escape') { inp.value = t.person || ''; inp.blur(); } });
+    return inp;
   }
   function personChip(t){
     const c = el('button', 'who-chip' + (t.person ? ' set' : ''), t.person || '+ Person'); c.type = 'button';
@@ -576,6 +616,7 @@ ul.tasks li:last-child{border-bottom:0}
     });
     return c;
   }
+  $('person-filter').addEventListener('change', e => { S.personFilter = e.target.value; render(); });
   $('group-mode').addEventListener('click', e => {
     const b = e.target.closest('.chip'); if (!b) return;
     S.data.groupMode = b.dataset.g; render(); save();
@@ -678,7 +719,7 @@ ul.tasks li:last-child{border-bottom:0}
   $('add-form').addEventListener('submit', e => {
     e.preventDefault();
     const v = $('new-task').value.trim(); if (!v) return;
-    const who = $('new-person').value.trim();
+    const who = $('new-person').value.trim() || (S.personFilter && S.personFilter !== '__none' ? S.personFilter : '');
     add(v, who ? {person: who} : null); $('new-task').value = ''; $('new-task').focus();
   });
 
