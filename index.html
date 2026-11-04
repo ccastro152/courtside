@@ -160,6 +160,40 @@ ul.tasks li:last-child{border-bottom:0}
 .reel-video iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
 .reel-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px}
 .reel-foot a{color:var(--board-ink);font-size:.82rem}
+
+/* v6: people + dock */
+form.add{flex-wrap:wrap}
+form.add #new-task{flex:1 1 220px}
+form.add .who-in{flex:0 1 150px}
+.lbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:14px}
+.lbar .filters{margin-bottom:0}
+.person{flex:none;border:0;font-size:.7rem;font-weight:700;letter-spacing:.03em;padding:2px 9px;border-radius:99px;background:#dde7f7;color:#1f3a66;white-space:nowrap}
+.person.none{background:transparent;color:var(--muted);border:1px dashed var(--line);font-weight:600}
+.person:hover{outline:1px solid #4a7fd6}
+:root[data-theme="dark"] .person:not(.none){background:#22324d;color:#cfe0ff}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .person:not(.none){background:#22324d;color:#cfe0ff}}
+.dk{flex:none;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.dk:hover{border-color:var(--orange);color:var(--ink)}
+.dk[aria-pressed="true"]{background:var(--orange);border-color:var(--orange);color:#1a1310}
+.dk:focus-visible,.person:focus-visible,.mv:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+ul.tasks li.docked .t{font-weight:600}
+details.grp{margin-top:14px}
+details.grp summary{cursor:pointer;display:flex;justify-content:space-between;align-items:baseline;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:4px 0;border-bottom:2px solid var(--line);list-style:none}
+details.grp summary::-webkit-details-marker{display:none}
+details.grp summary::before{content:"\25B8";margin-right:6px}
+details.grp[open] summary::before{content:"\25BE"}
+details.grp summary .nm{flex:1;color:var(--ink)}
+.dockbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:14px;padding:10px 14px;border-radius:10px;background:var(--orange-soft);border-left:4px solid var(--orange);font-size:.88rem}
+.dockbar b{font-weight:700}
+.dockbar .btn{padding:6px 12px;font-size:.85rem}
+.dcap{font-family:var(--display);font-weight:800;font-size:1.3rem;color:var(--orange);font-variant-numeric:tabular-nums}
+ul.dock li{padding:14px 4px}
+ul.dock .dn{flex:none;width:28px;font-family:var(--display);font-weight:800;font-size:1.5rem;color:var(--orange);text-align:center;line-height:1}
+ul.dock .t{font-size:1.02rem}
+.mv{border:0;background:transparent;color:var(--muted);padding:2px 5px;border-radius:6px;font-size:.9rem;line-height:1}
+.mv:hover{color:var(--orange)}
+.mv:disabled{opacity:.3;cursor:default}
+@media (max-width:520px){ul.tasks li{flex-wrap:wrap;row-gap:6px}ul.tasks li .t{flex-basis:calc(100% - 80px)}}
 </style>
 </head>
 <body>
@@ -185,6 +219,7 @@ ul.tasks li:last-child{border-bottom:0}
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" id="tab-tasks" aria-selected="true" aria-controls="view-tasks">Tasks</button>
     <button class="tab" role="tab" id="tab-done" aria-selected="false" aria-controls="view-done">Completed<span class="count" id="done-count" hidden>0</span></button>
+    <button class="tab" role="tab" id="tab-dock" aria-selected="false" aria-controls="view-dock">Dock<span class="count" id="dock-count" hidden>0</span></button>
     <button class="tab" role="tab" id="tab-inbox" aria-selected="false" aria-controls="view-inbox">Needs attention<span class="count" id="inbox-count" hidden>0</span></button>
   </nav>
 
@@ -229,14 +264,26 @@ ul.tasks li:last-child{border-bottom:0}
         <form class="add" id="add-form" autocomplete="off">
           <label for="new-task" style="position:absolute;left:-9999px">New task</label>
           <input class="txt" id="new-task" maxlength="200" placeholder="Add a task and press Enter">
+          <label for="new-who" style="position:absolute;left:-9999px">For (person, optional)</label>
+          <input class="txt who-in" id="new-who" maxlength="40" list="people-list" placeholder="For (optional)">
+          <datalist id="people-list"></datalist>
           <button class="btn" type="submit">Add</button>
         </form>
+        <div class="dockbar" id="dockbar" hidden>
+          <span id="dockbar-text"></span>
+          <button class="btn" type="button" id="dockbar-open">Open dock</button>
+        </div>
+        <div class="lbar">
+          <div class="filters" id="who-filters" aria-label="Filter by person"></div>
+          <button class="chip" type="button" id="group-toggle" aria-pressed="false">Group by person</button>
+        </div>
         <div class="sec">
           <h3 id="open-h">To do</h3>
           <ul class="tasks" id="open-list"></ul>
+          <div id="open-groups"></div>
         </div>
         <div class="note sync" id="save-note">Loading your tasks...</div>
-        <div class="note" style="opacity:.7">Version 5 &middot; highlight every 5th task</div>
+        <div class="note" style="opacity:.7">Version 6 &middot; people groups &middot; priority dock &middot; highlight every 5th task</div>
       </section>
     </div>
   </div>
@@ -252,6 +299,14 @@ ul.tasks li:last-child{border-bottom:0}
         <button class="chip" type="button" data-f="AP &amp; AR Desk" aria-pressed="false">AP &amp; AR Desk</button>
       </div>
       <div id="done-list"></div>
+    </section>
+  </div>
+
+  <div id="view-dock" role="tabpanel" aria-labelledby="tab-dock" hidden>
+    <section class="list" aria-label="Dock">
+      <div class="ibar"><h2>Dock</h2><span class="dcap" id="dock-cap">0 / 5</span></div>
+      <p class="istatus">Your priority lineup: up to 5 tasks to knock out first. Docked tasks stay in your Running list too. Finishing one clears it from the dock; use the arrows to set the order.</p>
+      <ul class="tasks dock" id="dock-list"></ul>
     </section>
   </div>
 
@@ -376,7 +431,7 @@ ul.tasks li:last-child{border-bottom:0}
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       if (!dirty && d && Array.isArray(d.tasks)) {
-        S.data = {version: 1, tasks: d.tasks, clips: d.clips || [], dismissed: d.dismissed || [], added: d.added || [], imported: d.imported || []};
+        S.data = {version: 1, tasks: d.tasks, clips: d.clips || [], dismissed: d.dismissed || [], added: d.added || [], imported: d.imported || [], people: d.people || []};
         cacheLocal();
       }
       S.loaded = true; setSync('Saved to OneDrive \u00b7 Courtside Tasks'); render(); loadDone();
@@ -406,7 +461,7 @@ ul.tasks li:last-child{border-bottom:0}
 
   // ---------- tabs ----------
   function showTab(name){
-    ['tasks','done','inbox'].forEach(n => {
+    ['tasks','done','dock','inbox'].forEach(n => {
       $('view-' + n).hidden = n !== name;
       $('tab-' + n).setAttribute('aria-selected', String(n === name));
     });
@@ -417,6 +472,9 @@ ul.tasks li:last-child{border-bottom:0}
   $('tab-inbox').addEventListener('click', () => { showTab('inbox'); loadInbox(); });
   if (location.hash === '#inbox') showTab('inbox');
   if (location.hash === '#done') showTab('done');
+  $('tab-dock').addEventListener('click', () => showTab('dock'));
+  $('dockbar-open').addEventListener('click', () => showTab('dock'));
+  if (location.hash === '#dock') showTab('dock');
 
   // ---------- tasks ----------
   function stats(){
@@ -431,14 +489,90 @@ ul.tasks li:last-child{border-bottom:0}
     });
     return {counts, tk, today, prev, best, bestKey, bestPrev};
   }
-  function taskRow(t){
-    const li = el('li', t.done ? 'done' : '');
+  // ---------- people + dock ----------
+  const DOCK_MAX = 5;
+  const UIKEY = 'courtside-ui';
+  S.who = 'all'; S.group = false; S.collapsed = [];
+  try { const u = JSON.parse(localStorage.getItem(UIKEY) || 'null'); if (u) { S.group = !!u.group; S.collapsed = Array.isArray(u.collapsed) ? u.collapsed : []; } } catch(e){}
+  const saveUI = () => { try { localStorage.setItem(UIKEY, JSON.stringify({group: S.group, collapsed: S.collapsed})); } catch(e){} };
+  const cleanWho = v => String(v || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  const sameWho = (a, b) => cleanWho(a).toLowerCase() === cleanWho(b).toLowerCase();
+  function rememberPerson(name){
+    name = cleanWho(name); if (!name) return name;
+    const people = S.data.people || (S.data.people = []);
+    const hit = people.find(p => sameWho(p, name));
+    if (hit) return hit;
+    people.push(name); people.sort((a,b) => a.localeCompare(b));
+    return name;
+  }
+  function allPeople(){
+    const set = new Map();
+    (S.data.people || []).concat(S.data.tasks.map(t => t.who)).forEach(p => { p = cleanWho(p); if (p && !set.has(p.toLowerCase())) set.set(p.toLowerCase(), p); });
+    return [...set.values()].sort((a,b) => a.localeCompare(b));
+  }
+  const docked = () => S.data.tasks.filter(t => t.docked && !t.done).sort((a,b) => (a.dockAt||0) - (b.dockAt||0));
+  function toggleDock(t){
+    if (t.docked) { t.docked = false; t.dockAt = null; }
+    else {
+      if (docked().length >= DOCK_MAX) { notice('Dock is full', 'Finish or undock one of your ' + DOCK_MAX + ' priority tasks first.'); return; }
+      t.docked = true; t.dockAt = Date.now();
+    }
+    render(); save();
+  }
+  function moveDock(t, dir){
+    const list = docked(); const i = list.indexOf(t), j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    list.forEach((x, k) => x.dockAt = k + 1);
+    const tmp = list[i].dockAt; list[i].dockAt = list[j].dockAt; list[j].dockAt = tmp;
+    render(); save();
+  }
+  function setWho(t){
+    const v = prompt('Who is this task for? Leave blank if it\u2019s just yours.', t.who || '');
+    if (v === null) return;
+    const name = cleanWho(v);
+    t.who = name ? rememberPerson(name) : '';
+    render(); save();
+  }
+  function notice(title, text){
+    const msg = $('toast-msg'); msg.textContent = '';
+    msg.append(el('b', '', title), el('span', '', text));
+    const toast = $('toast'); toast.classList.add('compact', 'show');
+    clearTimeout(hideTimer); hideTimer = setTimeout(hideToast, 3200);
+  }
+  $('group-toggle').addEventListener('click', () => { S.group = !S.group; saveUI(); render(); });
+  $('who-filters').addEventListener('click', e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    S.who = b.dataset.f;
+    $('new-who').value = S.who !== 'all' && S.who !== '' ? S.who : '';
+    render();
+  });
+
+  function taskRow(t, opts){
+    opts = opts || {};
+    const li = el('li', (t.done ? 'done' : '') + (t.docked && !t.done ? ' docked' : ''));
+    if (opts.num) li.append(el('span', 'dn', String(opts.num)));
     const b = el('button', 'chk'); b.type = 'button';
     b.setAttribute('aria-label', (t.done ? 'Mark not done: ' : 'Complete: ') + t.title);
     b.addEventListener('click', () => toggle(t));
     const s = el('span', 't', t.title);
     if (t.link && /^https:\/\//.test(t.link)) { const a = el('a', '', (t.src === 'email' ? 'email' : t.src === 'netsuite' ? 'NetSuite' : 'Teams') + ' \u2197'); a.href = t.link; a.target = '_blank'; a.rel = 'noopener'; s.append(a); }
     li.append(b, s);
+    if (!opts.hideWho && (t.who || !t.done)) {
+      const p = el('button', 'person' + (t.who ? '' : ' none'), t.who ? t.who : '+ For');
+      p.type = 'button'; p.setAttribute('aria-label', t.who ? 'For ' + t.who + '. Change person' : 'Assign a person to ' + t.title);
+      p.addEventListener('click', () => setWho(t)); li.append(p);
+    }
+    if (!t.done) {
+      if (opts.num) {
+        const up = el('button', 'mv', '\u25b2'); up.type = 'button'; up.setAttribute('aria-label', 'Move up: ' + t.title); up.disabled = opts.first; up.addEventListener('click', () => moveDock(t, -1));
+        const dn = el('button', 'mv', '\u25bc'); dn.type = 'button'; dn.setAttribute('aria-label', 'Move down: ' + t.title); dn.disabled = opts.last; dn.addEventListener('click', () => moveDock(t, 1));
+        li.append(up, dn);
+      }
+      const d = el('button', 'dk', t.docked ? (opts.num ? 'Undock' : 'Docked') : 'Dock'); d.type = 'button';
+      d.setAttribute('aria-pressed', String(!!t.docked && !opts.num));
+      d.setAttribute('aria-label', (t.docked ? 'Remove from dock: ' : 'Add to dock: ') + t.title);
+      d.addEventListener('click', () => toggleDock(t)); li.append(d);
+    }
     if (t.source) li.append(el('span', 'badge', t.source));
     if (t.done) li.append(el('span', 'time', new Date(t.completedAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})));
     const x = el('button', 'x', '\u00d7'); x.type = 'button'; x.setAttribute('aria-label','Delete ' + t.title); x.addEventListener('click', () => remove(t)); li.append(x);
@@ -469,13 +603,59 @@ ul.tasks li:last-child{border-bottom:0}
     });
     const open = S.data.tasks.filter(t => !t.done).sort((a,b) => (a.createdAt||0)-(b.createdAt||0));
     const doneToday = S.data.tasks.filter(t => t.done && t.completedAt && dayKey(t.completedAt) === st.tk);
+    // person filter chips (only people with open tasks)
+    const people = allPeople();
+    const dl = $('people-list'); dl.textContent = ''; people.forEach(p => { const o = el('option'); o.value = p; dl.append(o); });
+    const openPeople = people.filter(p => open.some(t => sameWho(t.who, p)));
+    if (S.who !== 'all' && S.who !== '' && !openPeople.some(p => sameWho(p, S.who))) S.who = 'all';
+    const wf = $('who-filters'); wf.textContent = '';
+    const mineN = open.filter(t => !cleanWho(t.who)).length;
+    [['all', 'All (' + open.length + ')'], ['', 'Just me (' + mineN + ')']].concat(openPeople.map(p => [p, p + ' (' + open.filter(t => sameWho(t.who, p)).length + ')'])).forEach(([f, txt]) => {
+      const c = el('button', 'chip', txt); c.type = 'button'; c.dataset.f = f; c.setAttribute('aria-pressed', String(S.who === f)); wf.append(c);
+    });
+    wf.hidden = !openPeople.length && !open.some(t => t.who);
+    $('group-toggle').hidden = !openPeople.length;
+    $('group-toggle').setAttribute('aria-pressed', String(S.group));
+    const shown = open.filter(t => S.who === 'all' || (S.who === '' ? !cleanWho(t.who) : sameWho(t.who, S.who)));
     const ul = $('open-list'); ul.textContent = '';
-    $('open-h').textContent = 'To do' + (open.length ? ' (' + open.length + ')' : '');
+    const groups = $('open-groups'); groups.textContent = '';
+    $('open-h').textContent = 'To do' + (shown.length ? ' (' + shown.length + ')' : '');
     if (!open.length) ul.append(el('li', 'hint', !S.loaded ? 'Loading...' : doneToday.length ? 'All clear. Add the next one above.' : 'Nothing here yet. Type your first task above and press Enter.'));
-    else open.forEach(t => ul.append(taskRow(t)));
+    else if (!shown.length) ul.append(el('li', 'hint', 'Nothing open in this filter.'));
+    else if (S.group && openPeople.length && S.who === 'all') {
+      $('open-h').textContent = 'To do (' + open.length + ') · by person';
+      const buckets = [['', 'Just me']].concat(openPeople.map(p => [p, p]));
+      buckets.forEach(([key, name]) => {
+        const items = shown.filter(t => key === '' ? !cleanWho(t.who) : sameWho(t.who, key));
+        if (!items.length) return;
+        const det = el('details', 'grp'); det.open = S.collapsed.indexOf(key || '__me') === -1;
+        const sum = el('summary'); sum.append(el('span', 'nm', name), el('span', '', items.length + (items.length === 1 ? ' task' : ' tasks')));
+        det.append(sum);
+        const gl = el('ul', 'tasks'); items.forEach(t => gl.append(taskRow(t, {hideWho: !!key}))); det.append(gl);
+        det.addEventListener('toggle', () => {
+          const k = key || '__me'; S.collapsed = S.collapsed.filter(x => x !== k); if (!det.open) S.collapsed.push(k); saveUI();
+        });
+        groups.append(det);
+      });
+    }
+    else shown.forEach(t => ul.append(taskRow(t)));
+    renderDock();
     renderDone();
     showClips();
     renderInbox();
+  }
+  function renderDock(){
+    const list = docked();
+    const cnt = $('dock-count'); cnt.textContent = list.length; cnt.hidden = !list.length;
+    $('dock-cap').textContent = list.length + ' / ' + DOCK_MAX;
+    const bar = $('dockbar'); bar.hidden = !list.length;
+    if (list.length) {
+      const tx = $('dockbar-text'); tx.textContent = '';
+      tx.append(el('b', '', list.length + ' in your dock. '), document.createTextNode('Up next: ' + list[0].title));
+    }
+    const ul = $('dock-list'); ul.textContent = '';
+    if (!list.length) { ul.append(el('li', 'hint', 'Your dock is empty. Tap “Dock” on up to ' + DOCK_MAX + ' tasks in your Running list to line up your priorities.')); return; }
+    list.forEach((t, i) => ul.append(taskRow(t, {num: i + 1, first: i === 0, last: i === list.length - 1})));
   }
   function renderDone(){
     const all = S.data.tasks.filter(t => t.done && t.completedAt);
@@ -536,6 +716,7 @@ ul.tasks li:last-child{border-bottom:0}
   function toggle(t){
     const before = stats();
     t.done = !t.done; t.completedAt = t.done ? Date.now() : null;
+    if (t.done && t.docked) { t.docked = false; t.dockAt = null; }
     render(); save();
     if (t.done) {
       // Highlights count only tasks you check off yourself today (not ones added from NetSuite)
@@ -548,7 +729,8 @@ ul.tasks li:last-child{border-bottom:0}
   $('add-form').addEventListener('submit', e => {
     e.preventDefault();
     const v = $('new-task').value.trim(); if (!v) return;
-    add(v); $('new-task').value = ''; $('new-task').focus();
+    const who = rememberPerson($('new-who').value);
+    add(v, who ? {who} : null); $('new-task').value = ''; $('new-task').focus();
   });
 
   // ---------- clips ----------
