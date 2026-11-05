@@ -291,7 +291,7 @@ ul.tasks li:last-child{border-bottom:0}
           <div id="open-list"></div>
         </div>
         <div class="note sync" id="save-note">Loading your tasks...</div>
-        <div class="note" style="opacity:.7">Version 7 &middot; For field, person filter, the Dock</div>
+        <div class="note" style="opacity:.7">Version 8 &middot; sent invoices, POs and AR follow-ups</div>
       </section>
     </div>
   </div>
@@ -299,12 +299,13 @@ ul.tasks li:last-child{border-bottom:0}
   <div id="view-done" role="tabpanel" aria-labelledby="tab-done" hidden>
     <section class="list" aria-label="Completed tasks">
       <div class="ibar"><h2>Completed</h2></div>
-      <p class="istatus">Everything you've finished, newest first. Uncheck a task to send it back to your Tasks list. Work you complete in the Billing Desk and AP &amp; AR Desk (invoices, POs, bills and card charges you create in NetSuite) is added here automatically.</p>
+      <p class="istatus">Everything you've finished, newest first. Uncheck a task to send it back to your Tasks list. Work from the Billing Desk and AP &amp; AR Desk is added here automatically: invoices, POs, bills and card charges you create in NetSuite, plus invoices and POs you email out and AR follow-ups you send.</p>
       <div class="cfilters" id="done-filters">
         <button class="chip" type="button" data-f="all" aria-pressed="true">All</button>
         <button class="chip" type="button" data-f="mine" aria-pressed="false">My tasks</button>
         <button class="chip" type="button" data-f="Billing Desk" aria-pressed="false">Billing Desk</button>
         <button class="chip" type="button" data-f="AP &amp; AR Desk" aria-pressed="false">AP &amp; AR Desk</button>
+        <button class="chip" type="button" data-f="email" aria-pressed="false">Emails sent</button>
       </div>
       <div id="done-list"></div>
     </section>
@@ -651,7 +652,7 @@ ul.tasks li:last-child{border-bottom:0}
     const all = S.data.tasks.filter(t => t.done && t.completedAt);
     const cnt = $('done-count'); cnt.textContent = all.length; cnt.hidden = !all.length;
     const f = S.doneFilter || 'all';
-    const list = all.filter(t => f === 'all' || (f === 'mine' ? !t.source : t.source === f)).sort((a,b) => b.completedAt - a.completedAt);
+    const list = all.filter(t => f === 'all' || (f === 'email' ? t.kind === 'email' : f === 'mine' ? !t.source : t.source === f)).sort((a,b) => b.completedAt - a.completedAt);
     const box = $('done-list'); box.textContent = '';
     if (!list.length) { box.append(el('div', 'hint', all.length ? 'Nothing in this filter.' : 'Finished tasks show up here with the date you completed them.')); return; }
     let cur = null, ul = null, n = 0, head = null;
@@ -690,8 +691,8 @@ ul.tasks li:last-child{border-bottom:0}
         if (!it || !it.key || imported.indexOf(it.key) !== -1) return;
         const when = Date.parse(it.completedAt) || Date.now();
         const match = it.taskId && S.data.tasks.find(t => t.id === it.taskId && !t.done);
-        if (match) { match.done = true; match.completedAt = when; if (!match.source) match.source = it.source; }
-        else S.data.tasks.push({id: 'd' + it.key.replace(/[^A-Za-z0-9]/g, ''), title: String(it.title || 'Completed in NetSuite').slice(0, 200), createdAt: when, done: true, completedAt: when, source: it.source || 'NetSuite', src: 'netsuite', link: /^https:\/\//.test(it.link || '') ? it.link : ''});
+        if (match) { match.done = true; match.completedAt = when; match.auto = true; if (!match.source) match.source = it.source; }
+        else S.data.tasks.push({id: 'd' + it.key.replace(/[^A-Za-z0-9]/g, ''), title: String(it.title || 'Completed').slice(0, 200), createdAt: when, done: true, completedAt: when, source: it.source || 'NetSuite', src: it.kind === 'email' ? 'email' : 'netsuite', kind: it.kind === 'email' ? 'email' : 'netsuite', auto: true, link: /^https:\/\//.test(it.link || '') ? it.link : ''});
         imported.push(it.key); changed = true;
       });
       if (imported.length > 3000) S.data.imported = imported.slice(-3000);
@@ -706,12 +707,12 @@ ul.tasks li:last-child{border-bottom:0}
   function toggle(t){
     const before = stats();
     t.done = !t.done; t.completedAt = t.done ? Date.now() : null;
-    if (t.done) { delete t.docked; delete t.dockedAt; }
+    if (t.done) { delete t.docked; delete t.dockedAt; delete t.auto; }
     render(); save();
     if (t.done) {
       // Highlights count only tasks you check off yourself today (not ones added from NetSuite)
       const tk = dayKey(Date.now());
-      const mine = S.data.tasks.filter(x => x.done && x.completedAt && dayKey(x.completedAt) === tk && x.src !== 'netsuite').length;
+      const mine = S.data.tasks.filter(x => x.done && x.completedAt && dayKey(x.completedAt) === tk && !x.auto && x.src !== 'netsuite').length;
       celebrate(before.today + 1, before.bestPrev, mine);
     }
   }
