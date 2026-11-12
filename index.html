@@ -211,6 +211,9 @@ ul.tasks li:last-child{border-bottom:0}
     <a href="https://claude.ai/artifact/1UAV8raLf9eSR6rmMMSjpr" target="_blank" rel="noopener">ProjectSight Billing Desk &#8599;</a>
     <a href="https://claude.ai/artifact/ByYuLR2LTfVGeJS4b5MGVa" target="_blank" rel="noopener">AP &amp; AR Desk &#8599;</a>
     <a href="https://claude.ai/artifact/JaNPXt46NjMKJgsRSYaRgn" target="_blank" rel="noopener">Cash Flow Forecast &#8599;</a>
+    <a href="https://claude.ai/artifact/2SMEWoc8dMqjfcvAHHfz5n" target="_blank" rel="noopener">Subcontractor Onboarding &#8599;</a>
+    <a href="https://claude.ai/artifact/WEN2pdrs6Q2hiKQ7bixEa9" target="_blank" rel="noopener">Owner Contract Builder &#8599;</a>
+    <a href="https://claude.ai/artifact/X1KxyB4sb6zcKt6hyvqYGY" target="_blank" rel="noopener">Vendor Bills to NetSuite &#8599;</a>
   </nav>
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" id="tab-tasks" aria-selected="true" aria-controls="view-tasks">Tasks</button>
@@ -291,7 +294,7 @@ ul.tasks li:last-child{border-bottom:0}
           <div id="open-list"></div>
         </div>
         <div class="note sync" id="save-note">Loading your tasks...</div>
-        <div class="note" style="opacity:.7">Version 8 &middot; sent invoices, POs and AR follow-ups</div>
+        <div class="note" style="opacity:.7">Version 9 &middot; more dashboard links, dashboard work counts toward highlights</div>
       </section>
     </div>
   </div>
@@ -351,6 +354,7 @@ ul.tasks li:last-child{border-bottom:0}
   const SCOPES = ['User.Read', 'Files.ReadWrite'];
   const FOLDER = 'Courtside Tasks';
   const GRAPH = 'https://graph.microsoft.com/v1.0';
+  const HL_EVERY = 5;
 
   const $ = id => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -365,6 +369,14 @@ ul.tasks li:last-child{border-bottom:0}
   const S = {data: {version: 1, tasks: [], clips: [], dismissed: [], added: []}, inbox: null, loaded: false, filter: 'all', sync: 'Loading your tasks...', syncErr: false};
   const LOCAL = 'courtside-cache';
   try { const c = JSON.parse(localStorage.getItem(LOCAL) || 'null'); if (c && c.tasks) S.data = c; } catch(e){}
+
+  // Highlight progress for today: your own check-offs and dashboard work both count.
+  // When it reaches 5 on a task you check off, the Short plays and it resets.
+  function hlState(){
+    const tk = dayKey(Date.now());
+    if (!S.data.hl || S.data.hl.day !== tk) S.data.hl = {day: tk, n: 0};
+    return S.data.hl;
+  }
 
   // ---------- Microsoft sign-in ----------
   let app = null, account = null;
@@ -432,10 +444,10 @@ ul.tasks li:last-child{border-bottom:0}
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       if (!dirty && d && Array.isArray(d.tasks)) {
-        S.data = {version: 1, tasks: d.tasks, clips: d.clips || [], dismissed: d.dismissed || [], added: d.added || [], imported: d.imported || [], groupMode: d.groupMode || 'list'};
+        S.data = {version: 1, tasks: d.tasks, clips: d.clips || [], dismissed: d.dismissed || [], added: d.added || [], imported: d.imported || [], groupMode: d.groupMode || 'list', hl: d.hl || null};
         cacheLocal();
       }
-      S.loaded = true; setSync('Saved to OneDrive \u00b7 Courtside Tasks'); render(); loadDone();
+      S.loaded = true; setSync('Saved to OneDrive · Courtside Tasks'); render(); loadDone();
     } catch(e){
       console.error(e); S.loaded = true;
       setSync(/403/.test(e.message) ? 'OneDrive access was refused. Sign out and back in, and approve the permissions.' : 'Could not reach OneDrive. Showing the copy saved in this browser.', true);
@@ -494,7 +506,7 @@ ul.tasks li:last-child{border-bottom:0}
     b.setAttribute('aria-label', (t.done ? 'Mark not done: ' : 'Complete: ') + t.title);
     b.addEventListener('click', () => toggle(t));
     const s = el('span', 't', t.title);
-    if (t.link && /^https:\/\//.test(t.link)) { const a = el('a', '', (t.src === 'email' ? 'email' : t.src === 'netsuite' ? 'NetSuite' : 'Teams') + ' \u2197'); a.href = t.link; a.target = '_blank'; a.rel = 'noopener'; s.append(a); }
+    if (t.link && /^https:\/\//.test(t.link)) { const a = el('a', '', (t.src === 'email' ? 'email' : t.src === 'netsuite' ? 'NetSuite' : 'Teams') + ' ↗'); a.href = t.link; a.target = '_blank'; a.rel = 'noopener'; s.append(a); }
     li.append(b, s);
     if (opts.inDock) { if (t.person) { const w = el('span', '', t.person); w.style.cssText = 'display:block;font-size:.78rem;color:var(--muted)'; s.append(w); } }
     else if (!t.done) li.append(forField(t));
@@ -509,9 +521,9 @@ ul.tasks li:last-child{border-bottom:0}
     if (t.source) li.append(el('span', 'badge', t.source));
     if (t.done) li.append(el('span', 'time', new Date(t.completedAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})));
     if (opts.inDock) {
-      const u = el('button', 'x', '\u00d7'); u.type = 'button'; u.title = 'Remove from the Dock'; u.setAttribute('aria-label','Remove from the Dock: ' + t.title); u.addEventListener('click', () => toggleDock(t)); li.append(u);
+      const u = el('button', 'x', '×'); u.type = 'button'; u.title = 'Remove from the Dock'; u.setAttribute('aria-label','Remove from the Dock: ' + t.title); u.addEventListener('click', () => toggleDock(t)); li.append(u);
     } else {
-      const x = el('button', 'x', '\u00d7'); x.type = 'button'; x.setAttribute('aria-label','Delete ' + t.title); x.addEventListener('click', () => remove(t)); li.append(x);
+      const x = el('button', 'x', '×'); x.type = 'button'; x.setAttribute('aria-label','Delete ' + t.title); x.addEventListener('click', () => remove(t)); li.append(x);
     }
     return li;
   }
@@ -686,6 +698,7 @@ ul.tasks li:last-child{border-bottom:0}
       const d = await r.json();
       if (!S.loaded || dirty || !d || !Array.isArray(d.items)) return;
       const imported = S.data.imported || (S.data.imported = []);
+      const tk = dayKey(Date.now());
       let changed = false;
       d.items.forEach(it => {
         if (!it || !it.key || imported.indexOf(it.key) !== -1) return;
@@ -693,6 +706,8 @@ ul.tasks li:last-child{border-bottom:0}
         const match = it.taskId && S.data.tasks.find(t => t.id === it.taskId && !t.done);
         if (match) { match.done = true; match.completedAt = when; match.auto = true; if (!match.source) match.source = it.source; }
         else S.data.tasks.push({id: 'd' + it.key.replace(/[^A-Za-z0-9]/g, ''), title: String(it.title || 'Completed').slice(0, 200), createdAt: when, done: true, completedAt: when, source: it.source || 'NetSuite', src: it.kind === 'email' ? 'email' : 'netsuite', kind: it.kind === 'email' ? 'email' : 'netsuite', auto: true, link: /^https:\/\//.test(it.link || '') ? it.link : ''});
+        // Dashboard work done today counts toward the next highlight
+        if (dayKey(when) === tk) hlState().n++;
         imported.push(it.key); changed = true;
       });
       if (imported.length > 3000) S.data.imported = imported.slice(-3000);
@@ -706,15 +721,18 @@ ul.tasks li:last-child{border-bottom:0}
   }
   function toggle(t){
     const before = stats();
+    const wasDoneToday = t.done && t.completedAt && dayKey(t.completedAt) === dayKey(Date.now());
     t.done = !t.done; t.completedAt = t.done ? Date.now() : null;
     if (t.done) { delete t.docked; delete t.dockedAt; delete t.auto; }
-    render(); save();
+    const h = hlState();
+    let hit = false;
     if (t.done) {
-      // Highlights count only tasks you check off yourself today (not ones added from NetSuite)
-      const tk = dayKey(Date.now());
-      const mine = S.data.tasks.filter(x => x.done && x.completedAt && dayKey(x.completedAt) === tk && !x.auto && x.src !== 'netsuite').length;
-      celebrate(before.today + 1, before.bestPrev, mine);
-    }
+      // Your check-off plus any dashboard work since the last highlight: 5 or more plays the Short
+      h.n++;
+      if (h.n >= HL_EVERY) { hit = true; h.n = 0; }
+    } else if (wasDoneToday && h.n > 0) h.n--;
+    render(); save();
+    if (t.done) celebrate(before.today + 1, before.bestPrev, h.n, hit);
   }
   function remove(t){ S.data.tasks = S.data.tasks.filter(x => x !== t); render(); save(); }
   $('add-form').addEventListener('submit', e => {
@@ -809,10 +827,9 @@ ul.tasks li:last-child{border-bottom:0}
     const sub = el('span', '', todayCount + (todayCount === 1 ? ' task' : ' tasks') + ' done today. ' + (record ? 'Old record was ' + bestPrev + '.' : pick(SUBS)));
     return [b, sub];
   }
-  function celebrate(todayCount, bestPrev, myCount){
+  // progress = tasks counted toward the next highlight (after this one); highlight = this check-off earned the Short
+  function celebrate(todayCount, bestPrev, progress, highlight){
     const clips = S.data.clips || [];
-    const n = myCount || todayCount;
-    const highlight = n > 0 && n % 5 === 0;
     if (highlight && clips.length) {
       let i; do { i = Math.floor(Math.random()*clips.length); } while (i === lastClip && clips.length > 1);
       lastClip = i;
@@ -837,14 +854,14 @@ ul.tasks li:last-child{border-bottom:0}
     const msg = $('toast-msg'); msg.textContent = ''; msg.append(...cheerNodes(todayCount, bestPrev));
     const toast = $('toast');
     if (highlight) {
-      // 5th task but no clips saved: show the animated highlight instead
+      // Earned a highlight but no clips saved: show the animated highlight instead
       let m; do { m = Math.floor(Math.random()*MOVES.length); } while (m === lastMove && MOVES.length > 1);
       lastMove = m;
       $('toast-move').textContent = 'Highlight: ' + MOVES[m].name;
       toast.classList.remove('compact');
       play(MOVES[m]);
     } else {
-      const left = 5 - (n % 5);
+      const left = Math.max(1, HL_EVERY - (progress || 0));
       msg.append(el('span', 'next', left === 1 ? 'One more for a highlight.' : left + ' more for a highlight.'));
       toast.classList.add('compact');
     }
